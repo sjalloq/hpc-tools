@@ -1,0 +1,68 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "hpc-tools"
+version = "0.1.0"
+description = "Unified HPC job submission across multiple schedulers"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.10"
+authors = [
+    {name = "Shareef Jalloq"}
+]
+keywords = ["hpc", "slurm", "sge", "pbs", "cluster", "job-submission"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Science/Research",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: System :: Clustering",
+    "Topic :: System :: Distributed Computing",
+]
+dependencies = [
+    "rich-click>=1.7",
+    "jinja2>=3.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-cov",
+    "mypy",
+    "ruff",
+]
+all = [
+    "hpc-tools[dev]",
+]
+
+[project.scripts]
+hpc = "hpc_tools.cli.main:cli"
+
+[project.urls]
+Homepage = "https://github.com/shareefj/hpc-tools"
+Repository = "https://github.com/shareefj/hpc-tools"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/hpc_tools"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]
+
+[tool.mypy]
+python_version = "3.10"
+strict = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

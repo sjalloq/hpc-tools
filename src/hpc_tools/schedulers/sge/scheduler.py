@@ -1,0 +1,325 @@
+"""SGE scheduler implementation."""
+
+from __future__ import annotations
+
+import os
+import subprocess
+import tempfile
+from pathlib import Path
+from typing import TYPE_CHECKING
+
+from hpc_tools.core.config import get_config
+from hpc_tools.core.result import ArrayJobResult, JobResult, JobStatus
+from hpc_tools.schedulers.base import BaseScheduler
+from hpc_tools.schedulers.sge.args import (
+    SGECpuArg,
+    SGECwdArg,
+    SGEErrorArg,
+    SGEJobNameArg,
+    SGEJoinOutputArg,
+    SGEMemArg,
+    SGEOutputArg,
+    SGEQueueArg,
+    SGETimeArg,
+)
+from hpc_tools.schedulers.sge.parser import (
+    parse_qacct_output,
+    parse_qstat_plain,
+    parse_qsub_output,
+    state_to_status,
+)
+from hpc_tools.templates import render_template
+
+if TYPE_CHECKING:
+    from hpc_tools.core.job import Job
+    from hpc_tools.core.job_array import JobArray
+
+
+class SGEScheduler(BaseScheduler):
+    """Sun Grid Engine scheduler implementation."""
+
+    name = "sge"
+
+    # Descriptor-based argument definitions
+    cpu_arg = SGECpuArg()
+    mem_arg = SGEMemArg()
+    time_arg = SGETimeArg()
+    queue_arg = SGEQueueArg()
+    job_name_arg = SGEJobNameArg()
+    stdout_arg = SGEOutputArg()
+    stderr_arg = SGEErrorArg()
+    join_output_arg = SGEJoinOutputArg()
+    cwd_arg = SGECwdArg()
+
+    def __init__(self) -> None:
+        # Load scheduler-specific config
+        config = get_config()
+        sge_config = config.get_scheduler_config("sge")
+
+        self.pe_name = sge_config.get("parallel_environment", "smp")
+        self.mem_resource = sge_config.get("memory_resource", "mem_free")
+        self.time_resource = sge_config.get("time_resource", "h_rt")
+        self.merge_output_default = sge_config.get("merge_output", True)
+
+    def submit(self, job: "Job", interactive: bool = False) -> JobResult:
+        """Submit a job to SGE."""
+        if interactive:
+            return self._submit_interactive(job)
+        return self._submit_batch(job)
+
+    def _submit_batch(self, job: "Job") -> JobResult:
+        """Submit via qsub."""
+        script = self.generate_script(job)
+
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".sh", delete=False, prefix="hpc_"
+        ) as f:
+            f.write(script)
+            script_path = f.name
+
+        try:
+            cmd = ["qsub", script_path]
+            result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+            job_id = parse_qsub_output(result.stdout)
+
+            if job_id is None:
+                raise RuntimeError(f"Failed to parse job ID from qsub output: {result.stdout}")
+
+            return JobResult(job_id=job_id, scheduler=self, job=job)
+        finally:
+            Path(script_path).unlink(missing_ok=True)
+
+    def _submit_interactive(self, job: "Job") -> JobResult:
+        """Submit via qrsh for interactive execution."""
+        cmd = self.build_interactive_command(job)
+        result = subprocess.run(cmd, check=False)
+        # For interactive jobs, we don't have a real job ID
+        return JobResult(job_id="interactive", scheduler=self, job=job)
+
+    def submit_array(self, array: "JobArray") -> ArrayJobResult:
+        """Submit array job."""
+        job = array.job
+        script = self.generate_script(job, array_range=array.range_str)
+
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".sh", delete=False, prefix="hpc_"
+        ) as f:
+            f.write(script)
+            script_path = f.name
+
+        try:
+            cmd = ["qsub", script_path]
+            result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+            job_id = parse_qsub_output(result.stdout)
+
+            if job_id is None:
+                raise RuntimeError(f"Failed to parse job ID from qsub output: {result.stdout}")
+
+            return ArrayJobResult(base_job_id=job_id, scheduler=self, array=array)
+        finally:
+            Path(script_path).unlink(missing_ok=True)
+
+    def cancel(self, job_id: str) -> bool:
+        """Cancel a job via qdel."""
+        try:
+            subprocess.run(["qdel", job_id], check=True, capture_output=True)
+            return True
+        except subprocess.CalledProcessError:
+            return False
+
+    def get_status(self, job_id: str) -> JobStatus:
+        """Get job status via qstat."""
+        # Try qstat first (running/pending jobs)
+        try:
+            result = subprocess.run(
+                ["qstat", "-j", job_id],
+                capture_output=True,
+                text=True,
+            )
+            if result.returncode == 0:
+                # Job exists, check state from regular qstat
+                result2 = subprocess.run(
+                    ["qstat"],
+                    capture_output=True,
+                    text=True,
+                )
+                if result2.returncode == 0:
+                    jobs = parse_qstat_plain(result2.stdout)
+                    # Handle array job task IDs (e.g., 12345.1)
+                    base_id = job_id.split(".")[0]
+                    if base_id in jobs:
+                        state = jobs[base_id].get("state", "")
+                        return state_to_status(state)
+                    # Check if full ID matches
+                    if job_id in jobs:
+                        state = jobs[job_id].get("state", "")
+                        return state_to_status(state)
+
+                # Job exists but not in qstat output - likely running
+                return JobStatus.RUNNING
+        except subprocess.CalledProcessError:
+            pass
+
+        # Job not in qstat, check qacct for completed jobs
+        try:
+            result = subprocess.run(
+                ["qacct", "-j", job_id],
+                capture_output=True,
+                text=True,
+            )
+            if result.returncode == 0:
+                info = parse_qacct_output(result.stdout)
+                exit_status = info.get("exit_status", "")
+                if exit_status == "0":
+                    return JobStatus.COMPLETED
+                else:
+                    return JobStatus.FAILED
+        except subprocess.CalledProcessError:
+            pass
+
+        return JobStatus.UNKNOWN
+
+    def get_exit_code(self, job_id: str) -> int | None:
+        """Get exit code from qacct."""
+        try:
+            result = subprocess.run(
+                ["qacct", "-j", job_id],
+                capture_output=True,
+                text=True,
+            )
+            if result.returncode == 0:
+                info = parse_qacct_output(result.stdout)
+                exit_status = info.get("exit_status")
+                if exit_status is not None:
+                    return int(exit_status)
+        except (subprocess.CalledProcessError, ValueError):
+            pass
+        return None
+
+    def get_output_path(self, job_id: str, stream: str) -> Path | None:
+        """Determine output path.
+
+        SGE uses patterns that need to be resolved.
+        """
+        # This is tricky with SGE as paths can use $JOB_ID, etc.
+        # For now, return None and let user check
+        return None
+
+    def generate_script(self, job: "Job", array_range: str | None = None) -> str:
+        """Generate qsub script using template."""
+        directives = self._build_directives(job, array_range)
+        return render_template(
+            "sge/templates/job.sh.j2",
+            job=job,
+            scheduler=self,
+            directives=directives,
+        )
+
+    def _build_directives(self, job: "Job", array_range: str | None = None) -> list[str]:
+        """Build #$ directives."""
+        directives: list[str] = []
+
+        # Shell
+        directives.append("#$ -S /bin/bash")
+
+        # Use current working directory
+        if job.workdir is None:
+            directives.append("#$ -cwd")
+
+        # Job name
+        if job.name:
+            directives.append(f"#$ -N {job.name}")
+
+        # CPU/slots via parallel environment
+        if job.cpu:
+            directives.append(f"#$ -pe {self.pe_name} {job.cpu}")
+
+        # Memory
+        if job.mem:
+            directives.append(f"#$ -l {self.mem_resource}={job.mem}")
+
+        # Time
+        if job.time:
+            directives.append(f"#$ -l {self.time_resource}={job.time}")
+
+        # Queue
+        if job.queue:
+            directives.append(f"#$ -q {job.queue}")
+
+        # Output handling - merge by default
+        if job.merge_output:
+            directives.append("#$ -j y")
+            if job.stdout:
+                directives.append(f"#$ -o {job.stdout}")
+        else:
+            if job.stdout:
+                directives.append(f"#$ -o {job.stdout}")
+            if job.stderr:
+                directives.append(f"#$ -e {job.stderr}")
+
+        # Array job
+        if array_range:
+            directives.append(f"#$ -t {array_range}")
+
+        # Resources (GRES-style)
+        for resource in job.resources:
+            directives.append(f"#$ -l {resource.name}={resource.value}")
+
+        # Dependencies
+        if job.dependencies:
+            dep_ids = ",".join(dep.job_id for dep in job.dependencies)
+            # SGE uses -hold_jid for dependencies
+            directives.append(f"#$ -hold_jid {dep_ids}")
+
+        # Raw args
+        for arg in job.raw_args + job.sge_args:
+            if arg.startswith("-"):
+                directives.append(f"#$ {arg}")
+            else:
+                directives.append(f"#$ -{arg}")
+
+        return directives
+
+    def build_submit_command(self, job: "Job") -> list[str]:
+        """Build qsub command line."""
+        cmd = ["qsub"]
+
+        if job.name:
+            cmd.extend(["-N", job.name])
+        if job.cpu:
+            cmd.extend(["-pe", self.pe_name, str(job.cpu)])
+        if job.mem:
+            cmd.extend(["-l", f"{self.mem_resource}={job.mem}"])
+        if job.time:
+            cmd.extend(["-l", f"{self.time_resource}={job.time}"])
+        if job.queue:
+            cmd.extend(["-q", job.queue])
+
+        cmd.extend(job.raw_args)
+        cmd.extend(job.sge_args)
+
+        return cmd
+
+    def build_interactive_command(self, job: "Job") -> list[str]:
+        """Build qrsh command for interactive jobs."""
+        cmd = ["qrsh"]
+
+        if job.cpu:
+            cmd.extend(["-pe", self.pe_name, str(job.cpu)])
+        if job.mem:
+            cmd.extend(["-l", f"{self.mem_resource}={job.mem}"])
+        if job.time:
+            cmd.extend(["-l", f"{self.time_resource}={job.time}"])
+        if job.queue:
+            cmd.extend(["-q", job.queue])
+
+        cmd.extend(job.raw_args)
+        cmd.extend(job.sge_args)
+
+        # Add the command
+        if isinstance(job.command, str):
+            cmd.append(job.command)
+        else:
+            cmd.extend(job.command)
+
+        return cmd

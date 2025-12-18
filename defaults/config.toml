@@ -1,0 +1,46 @@
+# hpc-tools default configuration
+
+[defaults]
+scheduler = "auto"
+cpu = 1
+mem = "4G"
+time = "1:00:00"
+inherit_env = true
+modules_path = []
+modules = []
+
+# SGE-specific settings
+[schedulers.sge]
+parallel_environment = "smp"
+memory_resource = "mem_free"
+time_resource = "h_rt"
+merge_output = true
+
+# Slurm-specific settings (for future use)
+[schedulers.slurm]
+# Default Slurm settings
+
+# Tool configurations
+[tools.xterm]
+queue = "interactive"
+time = "4:00:00"
+
+[tools.make]
+# Inherit defaults
+
+[tools.python]
+modules = ["python"]
+
+# Named job types
+[types.interactive]
+queue = "interactive"
+time = "8:00:00"
+inherit_env = true
+
+[types.gpu]
+queue = "gpu"
+resources = [{name = "gpu", value = 1}]
+
+[types.mpi]
+nodes = 2
+tasks = 32
