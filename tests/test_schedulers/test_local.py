@@ -5,9 +5,9 @@ from pathlib import Path
 
 import pytest
 
-from hpc_tools.core.job import Job
-from hpc_tools.core.result import JobStatus
-from hpc_tools.schedulers.local import LocalScheduler
+from hpc_runner.core.job import Job
+from hpc_runner.core.result import JobStatus
+from hpc_runner.schedulers.local import LocalScheduler
 
 
 class TestLocalScheduler:

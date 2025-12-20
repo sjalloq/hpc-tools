@@ -52,10 +52,10 @@ def cli(ctx: Context, config: Optional[Path], scheduler: Optional[str], verbose:
 
 
 # Import and register subcommands
-from hpc_tools.cli.run import run
-from hpc_tools.cli.status import status
-from hpc_tools.cli.cancel import cancel
-from hpc_tools.cli.config import config_cmd
+from hpc_runner.cli.run import run
+from hpc_runner.cli.status import status
+from hpc_runner.cli.cancel import cancel
+from hpc_runner.cli.config import config_cmd
 
 cli.add_command(run)
 cli.add_command(status)

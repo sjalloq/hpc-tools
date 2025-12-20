@@ -6,7 +6,7 @@ import rich_click as click
 from rich.console import Console
 from rich.syntax import Syntax
 
-from hpc_tools.cli.main import Context, pass_context
+from hpc_runner.cli.main import Context, pass_context
 
 console = Console()
 
@@ -21,7 +21,7 @@ def config_cmd() -> None:
 @pass_context
 def show(ctx: Context) -> None:
     """Show current configuration."""
-    from hpc_tools.core.config import find_config_file, load_config
+    from hpc_runner.core.config import find_config_file, load_config
 
     config_path = ctx.config_path or find_config_file()
 
@@ -99,7 +99,7 @@ merge_output = true
 @pass_context
 def path(ctx: Context) -> None:
     """Show path to active configuration file."""
-    from hpc_tools.core.config import find_config_file
+    from hpc_runner.core.config import find_config_file
 
     config_path = ctx.config_path or find_config_file()
 

@@ -3,7 +3,7 @@
 import rich_click as click
 from rich.console import Console
 
-from hpc_tools.cli.main import Context, pass_context
+from hpc_runner.cli.main import Context, pass_context
 
 console = Console()
 
@@ -21,7 +21,7 @@ def cancel(
 
     JOB_ID is the job ID to cancel.
     """
-    from hpc_tools.schedulers import get_scheduler
+    from hpc_runner.schedulers import get_scheduler
 
     scheduler = get_scheduler(ctx.scheduler)
 

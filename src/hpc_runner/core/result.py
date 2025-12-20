@@ -6,9 +6,9 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from hpc_tools.core.job import Job
-    from hpc_tools.core.job_array import JobArray
-    from hpc_tools.schedulers.base import BaseScheduler
+    from hpc_runner.core.job import Job
+    from hpc_runner.core.job_array import JobArray
+    from hpc_runner.schedulers.base import BaseScheduler
 
 
 class JobStatus(Enum):

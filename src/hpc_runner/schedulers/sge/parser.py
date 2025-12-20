@@ -4,7 +4,7 @@ import re
 import xml.etree.ElementTree as ET
 from typing import Any
 
-from hpc_tools.core.result import JobStatus
+from hpc_runner.core.result import JobStatus
 
 
 def parse_qstat_xml(xml_output: str) -> dict[str, Any]:

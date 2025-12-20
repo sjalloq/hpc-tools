@@ -5,12 +5,12 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
-from hpc_tools.core.job import Job
-from hpc_tools.workflow.dependency import DependencyType
+from hpc_runner.core.job import Job
+from hpc_runner.workflow.dependency import DependencyType
 
 if TYPE_CHECKING:
-    from hpc_tools.core.result import JobResult
-    from hpc_tools.schedulers.base import BaseScheduler
+    from hpc_runner.core.result import JobResult
+    from hpc_runner.schedulers.base import BaseScheduler
 
 
 @dataclass
@@ -95,7 +95,7 @@ class Pipeline:
         Returns:
             Dict mapping job names to results
         """
-        from hpc_tools.schedulers import get_scheduler
+        from hpc_runner.schedulers import get_scheduler
 
         if self._submitted:
             raise RuntimeError("Pipeline has already been submitted")

@@ -8,10 +8,10 @@ import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from hpc_tools.core.config import get_config
-from hpc_tools.core.result import ArrayJobResult, JobResult, JobStatus
-from hpc_tools.schedulers.base import BaseScheduler
-from hpc_tools.schedulers.sge.args import (
+from hpc_runner.core.config import get_config
+from hpc_runner.core.result import ArrayJobResult, JobResult, JobStatus
+from hpc_runner.schedulers.base import BaseScheduler
+from hpc_runner.schedulers.sge.args import (
     SGECpuArg,
     SGECwdArg,
     SGEErrorArg,
@@ -22,17 +22,17 @@ from hpc_tools.schedulers.sge.args import (
     SGEQueueArg,
     SGETimeArg,
 )
-from hpc_tools.schedulers.sge.parser import (
+from hpc_runner.schedulers.sge.parser import (
     parse_qacct_output,
     parse_qstat_plain,
     parse_qsub_output,
     state_to_status,
 )
-from hpc_tools.templates import render_template
+from hpc_runner.templates import render_template
 
 if TYPE_CHECKING:
-    from hpc_tools.core.job import Job
-    from hpc_tools.core.job_array import JobArray
+    from hpc_runner.core.job import Job
+    from hpc_runner.core.job_array import JobArray
 
 
 class SGEScheduler(BaseScheduler):

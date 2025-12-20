@@ -16,9 +16,9 @@ pytest tests/test_core/   # Specific directory
 pytest -k "test_job"      # By name pattern
 
 # Type checking and linting
-mypy src/hpc_tools
-ruff check src/hpc_tools
-ruff format src/hpc_tools
+mypy src/hpc_runner
+ruff check src/hpc_runner
+ruff format src/hpc_runner
 
 # CLI usage
 hpc --help
@@ -28,9 +28,9 @@ hpc --scheduler sge run --cpu 4 --mem 8G "python script.py"
 
 ## Architecture
 
-**Package**: `hpc-tools` (PyPI) / `hpc_tools` (import) / `hpc` (CLI)
+**Package**: `hpc-runner` (PyPI) / `hpc_runner` (import) / `hpc` (CLI)
 
-### Core Abstractions (`src/hpc_tools/core/`)
+### Core Abstractions (`src/hpc_runner/core/`)
 
 - **Job** - Central job model with command, resources (cpu/mem/time), modules, dependencies
 - **JobResult/ArrayJobResult** - Returned from submission, provides status polling and output access
@@ -38,7 +38,7 @@ hpc --scheduler sge run --cpu 4 --mem 8G "python script.py"
 - **ResourceSet** - Collection of named resources (gpu, licenses, etc.)
 - **HPCConfig** - TOML-based config with hierarchy: ./hpc-tools.toml > pyproject.toml > git root > ~/.config > package defaults
 
-### Scheduler System (`src/hpc_tools/schedulers/`)
+### Scheduler System (`src/hpc_runner/schedulers/`)
 
 - **BaseScheduler** - ABC defining submit(), cancel(), get_status(), generate_script()
 - **SGEScheduler** - Sun Grid Engine (qsub/qstat/qdel). All SGE-specific settings (PE name, resource names) are configurable via `[schedulers.sge]` config section
@@ -46,15 +46,15 @@ hpc --scheduler sge run --cpu 4 --mem 8G "python script.py"
 - **detection.py** - Auto-detects scheduler: HPC_SCHEDULER env > SGE_ROOT > sbatch > PBS > local fallback
 - **Registry** - `get_scheduler(name)` with lazy imports, `register_scheduler()` for custom schedulers
 
-### CLI (`src/hpc_tools/cli/`)
+### CLI (`src/hpc_runner/cli/`)
 
 Uses `rich-click` for styled output. Commands: `run`, `status`, `cancel`, `config`.
 
-### Workflow (`src/hpc_tools/workflow/`)
+### Workflow (`src/hpc_runner/workflow/`)
 
 **Pipeline** - Job dependency graphs with topological sorting. Jobs reference other jobs by name; dependencies are resolved at submit time.
 
-### Templates (`src/hpc_tools/templates/`)
+### Templates (`src/hpc_runner/templates/`)
 
 Jinja2 templates for job scripts. Each scheduler has its own template in `schedulers/{name}/templates/job.sh.j2`.
 

@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from hpc_tools.core.config import HPCConfig, find_config_file, load_config
+from hpc_runner.core.config import HPCConfig, find_config_file, load_config
 
 
 class TestHPCConfig:

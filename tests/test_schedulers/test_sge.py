@@ -4,10 +4,10 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from hpc_tools.core.job import Job
-from hpc_tools.core.result import JobStatus
-from hpc_tools.schedulers.sge import SGEScheduler
-from hpc_tools.schedulers.sge.parser import (
+from hpc_runner.core.job import Job
+from hpc_runner.core.result import JobStatus
+from hpc_runner.schedulers.sge import SGEScheduler
+from hpc_runner.schedulers.sge.parser import (
     parse_qacct_output,
     parse_qstat_plain,
     parse_qsub_output,
@@ -156,7 +156,7 @@ class TestSGEScheduler:
 
     def test_configurable_pe_name(self):
         """Test that PE name is configurable."""
-        with patch("hpc_tools.schedulers.sge.scheduler.get_config") as mock_config:
+        with patch("hpc_runner.schedulers.sge.scheduler.get_config") as mock_config:
             mock_config.return_value.get_scheduler_config.return_value = {
                 "parallel_environment": "mpi",
                 "memory_resource": "h_vmem",

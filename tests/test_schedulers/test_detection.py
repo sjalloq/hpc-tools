@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 import pytest
 
-from hpc_tools.schedulers.detection import detect_scheduler
+from hpc_runner.schedulers.detection import detect_scheduler
 
 
 class TestSchedulerDetection:

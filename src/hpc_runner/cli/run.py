@@ -7,7 +7,7 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.syntax import Syntax
 
-from hpc_tools.cli.main import Context, pass_context
+from hpc_runner.cli.main import Context, pass_context
 
 console = Console()
 
@@ -51,8 +51,8 @@ def run(
 
         hpc run python script.py --arg value
     """
-    from hpc_tools.core.job import Job
-    from hpc_tools.schedulers import get_scheduler
+    from hpc_runner.core.job import Job
+    from hpc_runner.schedulers import get_scheduler
 
     # Get scheduler
     scheduler_name = "local" if local else ctx.scheduler
@@ -107,7 +107,7 @@ def run(
 
 def _show_dry_run(job: "Job", scheduler: "BaseScheduler") -> None:
     """Display what would be submitted."""
-    from hpc_tools.schedulers.base import BaseScheduler
+    from hpc_runner.schedulers.base import BaseScheduler
 
     console.print(Panel.fit("[bold]Dry Run[/bold]", border_style="yellow"))
     console.print(f"[bold]Scheduler:[/bold] {scheduler.name}")

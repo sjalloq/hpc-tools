@@ -8,11 +8,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from hpc_tools.core.resources import ResourceSet
+from hpc_runner.core.resources import ResourceSet
 
 if TYPE_CHECKING:
-    from hpc_tools.core.result import JobResult
-    from hpc_tools.schedulers.base import BaseScheduler
+    from hpc_runner.core.result import JobResult
+    from hpc_runner.schedulers.base import BaseScheduler
 
 
 @dataclass
@@ -94,7 +94,7 @@ class Job:
         Returns:
             JobResult with job ID and status methods
         """
-        from hpc_tools.schedulers import get_scheduler
+        from hpc_runner.schedulers import get_scheduler
 
         if scheduler is None:
             scheduler = get_scheduler()
@@ -125,7 +125,7 @@ class Job:
             command: Override command (uses config template if None)
             **overrides: Override any job parameters
         """
-        from hpc_tools.core.config import load_config
+        from hpc_runner.core.config import load_config
 
         config = load_config()
         job_config = config.get_job_config(tool_or_type)

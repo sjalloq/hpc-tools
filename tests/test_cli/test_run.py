@@ -4,7 +4,7 @@ from click.testing import CliRunner
 
 import pytest
 
-from hpc_tools.cli.main import cli
+from hpc_runner.cli.main import cli
 
 
 class TestRunCommand:

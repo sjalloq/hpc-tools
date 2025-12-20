@@ -2,7 +2,7 @@
 
 import pytest
 
-from hpc_tools.core.resources import Resource, ResourceSet
+from hpc_runner.core.resources import Resource, ResourceSet
 
 
 class TestResource:

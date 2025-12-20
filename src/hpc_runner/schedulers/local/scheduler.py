@@ -9,13 +9,13 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from hpc_tools.core.result import ArrayJobResult, JobResult, JobStatus
-from hpc_tools.schedulers.base import BaseScheduler
-from hpc_tools.templates import render_template
+from hpc_runner.core.result import ArrayJobResult, JobResult, JobStatus
+from hpc_runner.schedulers.base import BaseScheduler
+from hpc_runner.templates import render_template
 
 if TYPE_CHECKING:
-    from hpc_tools.core.job import Job
-    from hpc_tools.core.job_array import JobArray
+    from hpc_runner.core.job import Job
+    from hpc_runner.core.job_array import JobArray
 
 
 class LocalScheduler(BaseScheduler):

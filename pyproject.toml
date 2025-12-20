@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "hpc-tools"
+name = "hpc-runner"
 version = "0.1.0"
 description = "Unified HPC job submission across multiple schedulers"
 readme = "README.md"
@@ -44,14 +44,14 @@ all = [
 ]
 
 [project.scripts]
-hpc = "hpc_tools.cli.main:cli"
+hpc = "hpc_runner.cli.main:cli"
 
 [project.urls]
 Homepage = "https://github.com/shareefj/hpc-tools"
 Repository = "https://github.com/shareefj/hpc-tools"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/hpc_tools"]
+packages = ["src/hpc_runner"]
 
 [tool.ruff]
 line-length = 100

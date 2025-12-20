@@ -4,8 +4,8 @@ import os
 
 import pytest
 
-from hpc_tools.core.job import Job
-from hpc_tools.core.resources import ResourceSet
+from hpc_runner.core.job import Job
+from hpc_runner.core.resources import ResourceSet
 
 
 class TestJob:

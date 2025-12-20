@@ -5,16 +5,16 @@ from __future__ import annotations
 import importlib
 from typing import TYPE_CHECKING
 
-from hpc_tools.schedulers.detection import detect_scheduler
+from hpc_runner.schedulers.detection import detect_scheduler
 
 if TYPE_CHECKING:
-    from hpc_tools.schedulers.base import BaseScheduler
+    from hpc_runner.schedulers.base import BaseScheduler
 
 _SCHEDULERS: dict[str, str] = {
-    "sge": "hpc_tools.schedulers.sge:SGEScheduler",
-    "slurm": "hpc_tools.schedulers.slurm:SlurmScheduler",
-    "pbs": "hpc_tools.schedulers.pbs:PBSScheduler",
-    "local": "hpc_tools.schedulers.local:LocalScheduler",
+    "sge": "hpc_runner.schedulers.sge:SGEScheduler",
+    "slurm": "hpc_runner.schedulers.slurm:SlurmScheduler",
+    "pbs": "hpc_runner.schedulers.pbs:PBSScheduler",
+    "local": "hpc_runner.schedulers.local:LocalScheduler",
 }
 
 

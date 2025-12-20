@@ -4,7 +4,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from hpc_tools.workflow import DependencyType, Pipeline, PipelineJob
+from hpc_runner.workflow import DependencyType, Pipeline, PipelineJob
 
 
 class TestPipeline:

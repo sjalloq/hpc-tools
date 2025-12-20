@@ -1,7 +1,7 @@
 """hpc-tools: HPC job submission across multiple schedulers."""
 
-from hpc_tools.core.config import HPCConfig, get_config, load_config, reload_config
-from hpc_tools.core.exceptions import (
+from hpc_runner.core.config import HPCConfig, get_config, load_config, reload_config
+from hpc_runner.core.exceptions import (
     ConfigError,
     ConfigNotFoundError,
     HPCToolsError,
@@ -10,12 +10,12 @@ from hpc_tools.core.exceptions import (
     SubmissionError,
     ValidationError,
 )
-from hpc_tools.core.job import Job
-from hpc_tools.core.job_array import JobArray
-from hpc_tools.core.resources import Resource, ResourceSet
-from hpc_tools.core.result import ArrayJobResult, JobResult, JobStatus
-from hpc_tools.schedulers import get_scheduler, list_schedulers, register_scheduler
-from hpc_tools.workflow import DependencyType, Pipeline, PipelineJob
+from hpc_runner.core.job import Job
+from hpc_runner.core.job_array import JobArray
+from hpc_runner.core.resources import Resource, ResourceSet
+from hpc_runner.core.result import ArrayJobResult, JobResult, JobStatus
+from hpc_runner.schedulers import get_scheduler, list_schedulers, register_scheduler
+from hpc_runner.workflow import DependencyType, Pipeline, PipelineJob
 
 __version__ = "0.1.0"
 

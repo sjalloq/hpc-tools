@@ -6,7 +6,7 @@ import rich_click as click
 from rich.console import Console
 from rich.table import Table
 
-from hpc_tools.cli.main import Context, pass_context
+from hpc_runner.cli.main import Context, pass_context
 
 console = Console()
 
@@ -27,7 +27,7 @@ def status(
     If JOB_ID is provided, show status of that specific job.
     Otherwise, list all your jobs.
     """
-    from hpc_tools.schedulers import get_scheduler
+    from hpc_runner.schedulers import get_scheduler
 
     scheduler = get_scheduler(ctx.scheduler)
 

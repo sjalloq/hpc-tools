@@ -1,6 +1,6 @@
 """SGE-specific argument descriptors."""
 
-from hpc_tools.core.descriptors import SchedulerArg
+from hpc_runner.core.descriptors import SchedulerArg
 
 
 class SGEArg(SchedulerArg):
