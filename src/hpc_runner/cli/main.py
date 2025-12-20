@@ -38,7 +38,7 @@ pass_context = click.make_pass_decorator(Context, ensure=True)
     is_flag=True,
     help="Enable verbose output",
 )
-@click.version_option(package_name="hpc-tools")
+@click.version_option(package_name="hpc-runner")
 @pass_context
 def cli(ctx: Context, config: Optional[Path], scheduler: Optional[str], verbose: bool) -> None:
     """HPC job submission tool.

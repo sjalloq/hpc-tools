@@ -1,4 +1,9 @@
-"""hpc-tools: HPC job submission across multiple schedulers."""
+"""hpc-runner: HPC job submission across multiple schedulers."""
+
+try:
+    from hpc_runner._version import __version__
+except ImportError:
+    __version__ = "0.0.0.dev0"
 
 from hpc_runner.core.config import HPCConfig, get_config, load_config, reload_config
 from hpc_runner.core.exceptions import (
@@ -16,8 +21,6 @@ from hpc_runner.core.resources import Resource, ResourceSet
 from hpc_runner.core.result import ArrayJobResult, JobResult, JobStatus
 from hpc_runner.schedulers import get_scheduler, list_schedulers, register_scheduler
 from hpc_runner.workflow import DependencyType, Pipeline, PipelineJob
-
-__version__ = "0.1.0"
 
 __all__ = [
     # Version

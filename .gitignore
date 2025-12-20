@@ -61,3 +61,6 @@ dmypy.json
 *.err
 *.o[0-9]*
 *.e[0-9]*
+
+# Generated version file
+src/hpc_runner/_version.py
