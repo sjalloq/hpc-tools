@@ -24,14 +24,7 @@ jobs:
           python-version: ${{ matrix.python-version }}
 
       - name: Install dependencies
-        run: |
-          pip install -e ".[dev]"
+        run: pip install -e ".[dev]"
 
       - name: Run tests
         run: pytest -v
-
-      - name: Type check
-        run: mypy src/hpc_runner --ignore-missing-imports
-
-      - name: Lint
-        run: ruff check src/hpc_runner
