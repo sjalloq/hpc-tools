@@ -51,8 +51,8 @@ all = [
 hpc = "hpc_runner.cli.main:cli"
 
 [project.urls]
-Homepage = "https://github.com/shareefj/hpc-tools"
-Repository = "https://github.com/shareefj/hpc-tools"
+Homepage = "https://github.com/sjalloq/hpc-runner"
+Repository = "https://github.com/sjalloq/hpc-runner"
 
 [tool.hatch.version]
 source = "vcs"
