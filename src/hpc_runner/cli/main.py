@@ -1,7 +1,6 @@
 """Main CLI entry point using rich-click."""
 
 from pathlib import Path
-from typing import Optional
 
 import rich_click as click
 from rich.console import Console
@@ -15,8 +14,8 @@ console = Console()
 # Context object to pass state between commands
 class Context:
     def __init__(self) -> None:
-        self.config_path: Optional[Path] = None
-        self.scheduler: Optional[str] = None
+        self.config_path: Path | None = None
+        self.scheduler: str | None = None
         self.verbose: bool = False
 
 pass_context = click.make_pass_decorator(Context, ensure=True)
@@ -24,38 +23,41 @@ pass_context = click.make_pass_decorator(Context, ensure=True)
 
 @click.group()
 @click.option(
-    "--config", "-c",
+    "--config",
     type=click.Path(exists=True, path_type=Path),
     help="Path to configuration file",
 )
 @click.option(
-    "--scheduler", "-s",
+    "--scheduler",
     type=str,
     help="Force scheduler (sge, slurm, pbs, local)",
 )
 @click.option(
-    "--verbose", "-v",
+    "--verbose",
     is_flag=True,
     help="Enable verbose output",
 )
 @click.version_option(package_name="hpc-runner")
 @pass_context
-def cli(ctx: Context, config: Optional[Path], scheduler: Optional[str], verbose: bool) -> None:
+def cli(ctx: Context, config: Path | None, scheduler: str | None, verbose: bool) -> None:
     """HPC job submission tool.
 
     Submit and manage jobs across different HPC schedulers (SGE, Slurm, PBS)
     with a unified interface.
+
+    Any unrecognized short options are passed directly to the underlying
+    scheduler, allowing use of native flags like -N, -n, -q, etc.
     """
     ctx.config_path = config
     ctx.scheduler = scheduler
     ctx.verbose = verbose
 
 
-# Import and register subcommands
-from hpc_runner.cli.run import run
-from hpc_runner.cli.status import status
-from hpc_runner.cli.cancel import cancel
-from hpc_runner.cli.config import config_cmd
+# Import and register subcommands (must be after cli is defined to avoid circular imports)
+from hpc_runner.cli.cancel import cancel  # noqa: E402
+from hpc_runner.cli.config import config_cmd  # noqa: E402
+from hpc_runner.cli.run import run  # noqa: E402
+from hpc_runner.cli.status import status  # noqa: E402
 
 cli.add_command(run)
 cli.add_command(status)

@@ -1,6 +1,5 @@
 """Status command - check job status."""
 
-from typing import Optional
 
 import rich_click as click
 from rich.console import Console
@@ -13,12 +12,12 @@ console = Console()
 
 @click.command()
 @click.argument("job_id", required=False)
-@click.option("--all", "-a", "all_users", is_flag=True, help="Show all users' jobs")
-@click.option("--watch", "-w", is_flag=True, help="Watch mode (refresh periodically)")
+@click.option("--all", "all_users", is_flag=True, help="Show all users' jobs")
+@click.option("--watch", is_flag=True, help="Watch mode (refresh periodically)")
 @pass_context
 def status(
     ctx: Context,
-    job_id: Optional[str],
+    job_id: str | None,
     all_users: bool,
     watch: bool,
 ) -> None:
@@ -47,7 +46,9 @@ def status(
         console.print(table)
     else:
         # List all jobs (not implemented for all schedulers)
-        console.print("[yellow]Listing all jobs requires scheduler-specific implementation[/yellow]")
+        console.print(
+            "[yellow]Listing all jobs requires scheduler-specific implementation[/yellow]"
+        )
         console.print("Use 'hpc status <job_id>' to check a specific job")
 
 

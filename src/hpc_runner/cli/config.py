@@ -21,7 +21,7 @@ def config_cmd() -> None:
 @pass_context
 def show(ctx: Context) -> None:
     """Show current configuration."""
-    from hpc_runner.core.config import find_config_file, load_config
+    from hpc_runner.core.config import find_config_file
 
     config_path = ctx.config_path or find_config_file()
 
@@ -45,7 +45,7 @@ def show(ctx: Context) -> None:
 
 
 @config_cmd.command("init")
-@click.option("--global", "-g", "global_config", is_flag=True, help="Create global config")
+@click.option("--global", "global_config", is_flag=True, help="Create in ~/.config/hpc-tools/")
 @pass_context
 def init(ctx: Context, global_config: bool) -> None:
     """Create a new configuration file."""

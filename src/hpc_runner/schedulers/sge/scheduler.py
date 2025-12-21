@@ -265,8 +265,17 @@ class SGEScheduler(BaseScheduler):
         for resource in job.resources:
             directives.append(f"#$ -l {resource.name}={resource.value}")
 
-        # Dependencies
-        if job.dependencies:
+        # Dependencies (string-based from CLI)
+        if job.dependency:
+            # Parse dependency spec (e.g., "afterok:12345" or just "12345")
+            if ":" in job.dependency:
+                # Format: "type:job_id,job_id,..."
+                dep_spec = job.dependency.split(":", 1)[1]
+            else:
+                dep_spec = job.dependency
+            directives.append(f"#$ -hold_jid {dep_spec}")
+        # Dependencies (programmatic from Job.after())
+        elif job.dependencies:
             dep_ids = ",".join(dep.job_id for dep in job.dependencies)
             # SGE uses -hold_jid for dependencies
             directives.append(f"#$ -hold_jid {dep_ids}")

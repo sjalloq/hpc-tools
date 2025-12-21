@@ -64,6 +64,7 @@ class Job:
     pbs_args: list[str] = field(default_factory=list)
 
     # Dependency management
+    dependency: str | None = None  # CLI dependency specification (e.g., "afterok:12345")
     dependencies: list[JobResult] = field(default_factory=list)
     dependency_type: str = "afterok"  # afterok, afterany, after, afternotok
 

@@ -10,7 +10,7 @@ console = Console()
 
 @click.command()
 @click.argument("job_id")
-@click.option("--force", "-f", is_flag=True, help="Force cancel without confirmation")
+@click.option("--force", is_flag=True, help="Cancel without confirmation")
 @pass_context
 def cancel(
     ctx: Context,
