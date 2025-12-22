@@ -56,6 +56,7 @@ def cli(ctx: Context, config: Path | None, scheduler: str | None, verbose: bool)
 # Import and register subcommands (must be after cli is defined to avoid circular imports)
 from hpc_runner.cli.cancel import cancel  # noqa: E402
 from hpc_runner.cli.config import config_cmd  # noqa: E402
+from hpc_runner.cli.monitor import monitor  # noqa: E402
 from hpc_runner.cli.run import run  # noqa: E402
 from hpc_runner.cli.status import status  # noqa: E402
 
@@ -63,6 +64,7 @@ cli.add_command(run)
 cli.add_command(status)
 cli.add_command(cancel)
 cli.add_command(config_cmd, name="config")
+cli.add_command(monitor)
 
 
 def main() -> None:

@@ -1,0 +1,43 @@
+/* HPC Monitor TUI Stylesheet
+ * Based on TEXTUAL_STYLING_COOKBOOK.md patterns
+ */
+
+/* Border Variables */
+$border-style: round;
+$border-blurred: $primary-background-lighten-3;
+$border: $primary-lighten-3;
+$border-disabled: $panel;
+
+/* Scrollbar Colors */
+$scrollbar: $primary;
+$scrollbar-hover: $primary-lighten-3;
+$scrollbar-active: $primary-lighten-3;
+$scrollbar-background: $primary-muted;
+
+/* Reset default dimming and set scrollbar defaults */
+* {
+    scrollbar-size: 1 1;
+    scrollbar-color: $scrollbar;
+    scrollbar-background: $scrollbar-background;
+    scrollbar-color-hover: $scrollbar-hover;
+    scrollbar-color-active: $scrollbar-active;
+}
+
+/* Base panel styling */
+.panel {
+    background: transparent;
+    border: $border-style $border-blurred;
+    border-subtitle-background: $border-blurred;
+    opacity: 1 !important;
+    background-tint: transparent !important;
+}
+
+.panel:focus-within {
+    border: $border-style $border;
+    border-subtitle-background: $border;
+}
+
+/* Hide utility */
+.hidden {
+    display: none;
+}
