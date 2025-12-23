@@ -68,7 +68,7 @@ class TestJobTable:
             assert "queue" in column_keys
             assert "status" in column_keys
             assert "runtime" in column_keys
-            assert "resources" in column_keys
+            assert "slots" in column_keys
 
     @pytest.mark.asyncio
     async def test_update_jobs(self):

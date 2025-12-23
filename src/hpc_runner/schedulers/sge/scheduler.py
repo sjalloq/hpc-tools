@@ -448,10 +448,15 @@ class SGEScheduler(BaseScheduler):
         # Stub: assume accounting is available (will be properly checked later)
         return True
 
-    def get_job_details(self, job_id: str) -> JobInfo:
+    def get_job_details(self, job_id: str) -> tuple[JobInfo, dict[str, object]]:
         """Get detailed information for an SGE job using qstat -j -xml.
 
-        Parses the full job details including output paths.
+        Parses the full job details including output paths, resources, etc.
+
+        Returns:
+            Tuple of (JobInfo, extra_details dict).
+            The extra_details dict contains resources, pe_name, pe_range,
+            cwd, script_file, dependencies, project, department.
         """
         cmd = ["qstat", "-j", job_id, "-xml"]
         try:
@@ -463,6 +468,13 @@ class SGEScheduler(BaseScheduler):
 
         # Parse XML output
         job_data = self._parse_qstat_j_xml(result.stdout)
+
+        # Separate extra details from JobInfo fields
+        extra_details: dict[str, object] = {}
+        for key in ("resources", "pe_name", "pe_range", "cwd", "script_file",
+                    "dependencies", "project", "department"):
+            if key in job_data:
+                extra_details[key] = job_data[key]
 
         # Get basic info from qstat -xml first
         basic_jobs = self.list_active_jobs()
@@ -476,10 +488,10 @@ class SGEScheduler(BaseScheduler):
                 basic_info.stderr_path = job_data["stderr_path"]
             if job_data.get("node"):
                 basic_info.node = job_data["node"]
-            return basic_info
+            return basic_info, extra_details
         else:
             # Build from scratch using qstat -j data
-            return JobInfo(
+            job_info = JobInfo(
                 job_id=job_id,
                 name=job_data.get("name", job_id),
                 user=job_data.get("user", "unknown"),
@@ -489,9 +501,19 @@ class SGEScheduler(BaseScheduler):
                 stderr_path=job_data.get("stderr_path"),
                 node=job_data.get("node"),
             )
+            return job_info, extra_details
 
     def _parse_qstat_j_xml(self, xml_output: str) -> dict[str, object]:
-        """Parse qstat -j -xml output to extract job details."""
+        """Parse qstat -j -xml output to extract job details.
+
+        Returns a dict with:
+        - Basic: name, user, stdout_path, stderr_path
+        - Resources: dict of resource_name -> value
+        - PE: pe_name, pe_range
+        - Paths: cwd, script_file
+        - Dependencies: list of job IDs
+        - Other: project, department
+        """
         import xml.etree.ElementTree as ET
 
         data: dict[str, object] = {}
@@ -509,7 +531,7 @@ class SGEScheduler(BaseScheduler):
         if job_info is None:
             return data
 
-        # Extract fields
+        # Extract basic fields
         name_elem = job_info.find(".//JB_job_name")
         if name_elem is not None and name_elem.text:
             data["name"] = name_elem.text
@@ -518,11 +540,26 @@ class SGEScheduler(BaseScheduler):
         if owner_elem is not None and owner_elem.text:
             data["user"] = owner_elem.text
 
+        # Project and department
+        project_elem = job_info.find(".//JB_project")
+        if project_elem is not None and project_elem.text:
+            data["project"] = project_elem.text
+
+        dept_elem = job_info.find(".//JB_department")
+        if dept_elem is not None and dept_elem.text:
+            data["department"] = dept_elem.text
+
         # Get cwd for resolving relative paths
         cwd: Path | None = None
         cwd_elem = job_info.find(".//JB_cwd")
         if cwd_elem is not None and cwd_elem.text:
             cwd = Path(cwd_elem.text)
+            data["cwd"] = str(cwd)
+
+        # Script file
+        script_elem = job_info.find(".//JB_script_file")
+        if script_elem is not None and script_elem.text:
+            data["script_file"] = script_elem.text
 
         # stdout path - look for PN_path in stdout_path_list
         stdout_path_elem = job_info.find(".//JB_stdout_path_list//PN_path")
@@ -550,5 +587,51 @@ class SGEScheduler(BaseScheduler):
         # If merge is enabled and we have stdout but no stderr, use stdout for both
         if data.get("merge") and data.get("stdout_path") and not data.get("stderr_path"):
             data["stderr_path"] = data["stdout_path"]
+
+        # Parse hard resource list
+        resources: dict[str, str] = {}
+        for qstat_elem in job_info.findall(".//JB_hard_resource_list/qstat_l_requests"):
+            res_name_elem = qstat_elem.find("CE_name")
+            res_val_elem = qstat_elem.find("CE_stringval")
+            if res_name_elem is not None and res_name_elem.text:
+                res_name = res_name_elem.text
+                res_val = res_val_elem.text if res_val_elem is not None else ""
+                resources[res_name] = res_val or ""
+
+        # Also check soft resources
+        for qstat_elem in job_info.findall(".//JB_soft_resource_list/qstat_l_requests"):
+            res_name_elem = qstat_elem.find("CE_name")
+            res_val_elem = qstat_elem.find("CE_stringval")
+            if res_name_elem is not None and res_name_elem.text:
+                res_name = res_name_elem.text
+                res_val = res_val_elem.text if res_val_elem is not None else ""
+                resources[f"{res_name} (soft)"] = res_val or ""
+
+        if resources:
+            data["resources"] = resources
+
+        # Parallel environment
+        pe_elem = job_info.find(".//JB_pe")
+        if pe_elem is not None and pe_elem.text:
+            data["pe_name"] = pe_elem.text
+
+        # PE range (min-max slots)
+        pe_range_min = job_info.find(".//JB_pe_range//RN_min")
+        pe_range_max = job_info.find(".//JB_pe_range//RN_max")
+        if pe_range_min is not None and pe_range_max is not None:
+            min_val = pe_range_min.text or "1"
+            max_val = pe_range_max.text or "1"
+            if min_val == max_val:
+                data["pe_range"] = min_val
+            else:
+                data["pe_range"] = f"{min_val}-{max_val}"
+
+        # Dependencies (predecessor jobs)
+        dependencies: list[str] = []
+        for dep_elem in job_info.findall(".//JB_jid_predecessor_list//JRE_job_number"):
+            if dep_elem.text:
+                dependencies.append(dep_elem.text)
+        if dependencies:
+            data["dependencies"] = dependencies
 
         return data

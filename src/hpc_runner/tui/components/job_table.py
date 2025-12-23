@@ -33,7 +33,7 @@ class JobTable(DataTable):
         ("queue", "Queue", 12),
         ("status", "Status", 10),
         ("runtime", "Runtime", 10),
-        ("resources", "Resources", 12),
+        ("slots", "Slots", 6),
     ]
 
     def __init__(
@@ -97,7 +97,7 @@ class JobTable(DataTable):
                 job.queue or "—",
                 self._format_status(job.status),
                 job.runtime_display,
-                job.resources_display,
+                str(job.cpu) if job.cpu is not None else "—",
                 key=job.job_id,
             )
 

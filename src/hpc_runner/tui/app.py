@@ -29,7 +29,7 @@ from hpc_runner.tui.components import (
     JobTable,
 )
 from hpc_runner.tui.providers import JobProvider
-from hpc_runner.tui.screens import ConfirmScreen, LogViewerScreen
+from hpc_runner.tui.screens import ConfirmScreen, JobDetailsScreen, LogViewerScreen
 
 
 # Custom theme inspired by Nord color palette for a muted, professional look.
@@ -67,6 +67,7 @@ class HpcMonitorApp(App[None]):
         Binding("q", "quit", "Quit"),
         Binding("r", "refresh", "Refresh"),
         Binding("u", "toggle_user", "Toggle User"),
+        Binding("enter", "view_details", "Details", show=False),
         Binding("/", "filter_search", "Search", show=False),
         Binding("s", "screenshot", "Screenshot", show=False),
         Binding("question_mark", "help", "Help", show=False),
@@ -97,6 +98,9 @@ class HpcMonitorApp(App[None]):
         self._queue_filter: str | None = None
         self._search_filter: str = ""
 
+        # Store extra details for currently selected job (for Enter popup)
+        self._selected_job_extra: dict[str, object] = {}
+
     def compose(self) -> ComposeResult:
         """Create child widgets for the app."""
         yield Header()
@@ -118,6 +122,8 @@ class HpcMonitorApp(App[None]):
             yield Static("Refresh", classes="footer-label")
             yield Static(" u", classes="footer-key")
             yield Static("User", classes="footer-label")
+            yield Static(" ↵", classes="footer-key")
+            yield Static("Details", classes="footer-label")
             yield Static(" /", classes="footer-key")
             yield Static("Search", classes="footer-label")
             yield Static(" ?", classes="footer-key")
@@ -171,6 +177,21 @@ class HpcMonitorApp(App[None]):
     def action_refresh(self) -> None:
         """Manually trigger a data refresh."""
         self._refresh_active_jobs()
+
+    def action_view_details(self) -> None:
+        """Open full details popup for selected job."""
+        try:
+            detail_panel = self.query_one("#detail-panel", DetailPanel)
+            job = detail_panel._job
+            if job is None:
+                self.notify("No job selected", severity="warning", timeout=2)
+                return
+
+            self.push_screen(
+                JobDetailsScreen(job=job, extra_details=self._selected_job_extra)
+            )
+        except Exception as e:
+            self.notify(f"Error: {e}", severity="error", timeout=3)
 
     def _refresh_active_jobs(self) -> None:
         """Fetch active jobs and update the table.
@@ -297,11 +318,16 @@ class HpcMonitorApp(App[None]):
         """
         # Start with basic info from the event
         job_info = event.job_info
+        self._selected_job_extra = {}
 
         # Try to get detailed info (including stdout/stderr paths)
         try:
-            detailed_info = self._scheduler.get_job_details(job_info.job_id)
-            job_info = detailed_info
+            result = self._scheduler.get_job_details(job_info.job_id)
+            # Handle tuple return (JobInfo, extra_details)
+            if isinstance(result, tuple):
+                job_info, self._selected_job_extra = result
+            else:
+                job_info = result
         except (NotImplementedError, Exception):
             # Scheduler doesn't support details or call failed - use basic info
             pass
