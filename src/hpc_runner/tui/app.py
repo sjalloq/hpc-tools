@@ -29,6 +29,7 @@ from hpc_runner.tui.components import (
     JobTable,
 )
 from hpc_runner.tui.providers import JobProvider
+from hpc_runner.tui.screens import ConfirmScreen
 
 
 # Custom theme inspired by Nord color palette for a muted, professional look.
@@ -293,6 +294,44 @@ class HpcMonitorApp(App[None]):
 
     def on_detail_panel_cancel_job(self, event: DetailPanel.CancelJob) -> None:
         """Handle request to cancel a job."""
-        # TODO: Implement cancel confirmation in Stage 12
         job = event.job
-        self.notify(f"Cancel job {job.job_id}? (Coming soon)", timeout=3)
+
+        def handle_confirm(confirmed: bool) -> None:
+            """Handle confirmation result."""
+            if confirmed:
+                self._do_cancel_job(job)
+
+        # Format job details for confirmation dialog
+        message = (
+            f"[bold]Job ID:[/]  {job.job_id}\n"
+            f"[bold]Name:[/]    {job.name}"
+        )
+        self.push_screen(
+            ConfirmScreen(
+                message=message,
+                title="Terminate Job",
+                confirm_label="Confirm",
+            ),
+            handle_confirm,
+        )
+
+    def _do_cancel_job(self, job: JobInfo) -> None:
+        """Actually cancel the job."""
+        self.run_worker(self._cancel_job_worker(job), exclusive=False)
+
+    async def _cancel_job_worker(self, job: JobInfo) -> None:
+        """Worker to cancel job in background."""
+        try:
+            # Run cancel in thread pool to avoid blocking
+            import asyncio
+            loop = asyncio.get_event_loop()
+            await loop.run_in_executor(
+                None,
+                self._scheduler.cancel,
+                job.job_id,
+            )
+            self.notify(f"Job {job.job_id} cancelled", severity="information", timeout=3)
+            # Refresh the job list
+            self._refresh_active_jobs()
+        except Exception as e:
+            self.notify(f"Failed to cancel: {e}", severity="error", timeout=5)

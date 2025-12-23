@@ -359,33 +359,38 @@ DetailPanel:focus-within {
     background: transparent;
     border: round $border-blurred;
     color: $foreground;
+    text-style: none;
 }
 
 #detail-buttons > Button:hover {
-    background: $boost;
+    background: transparent;
     border: round $border;
+    color: $primary;
+    text-style: bold;
 }
 
 #detail-buttons > Button:focus {
-    border: round $border;
+    background: transparent;
+    border: round $primary;
+    color: $primary;
+    text-style: bold;
 }
 
 #detail-buttons > Button.-disabled {
     color: $foreground-darken-2;
     border: round $border-disabled;
+    text-style: none;
 }
 
-#detail-buttons > #btn-cancel {
-    color: $error;
-    border: round $error-darken-2;
-}
-
+/* Cancel button - error styling only on hover/focus */
 #detail-buttons > #btn-cancel:hover {
     border: round $error;
+    color: $error;
 }
 
 #detail-buttons > #btn-cancel:focus {
     border: round $error;
+    color: $error;
 }
 
 #no-selection {
@@ -394,4 +399,82 @@ DetailPanel:focus-within {
     content-align: center middle;
     color: $foreground-darken-2;
     background: transparent;
+}
+
+/* ============================================
+   Confirm Modal Screen
+   ============================================ */
+
+ConfirmScreen {
+    align: center middle;
+    background: transparent;
+}
+
+#confirm-dialog {
+    width: auto;
+    height: auto;
+    min-width: 30;
+    max-width: 80;
+    background: transparent;
+    border: round $primary;
+    border-title-color: $primary;
+    padding: 1 2;
+}
+
+#confirm-message {
+    width: auto;
+    height: auto;
+    background: transparent;
+    text-align: left;
+    margin-bottom: 1;
+    padding: 0 1;
+}
+
+#confirm-buttons {
+    width: 100%;
+    height: 3;
+    align: center middle;
+    background: transparent;
+}
+
+#confirm-hint {
+    width: 100%;
+    height: 1;
+    text-align: center;
+    color: $foreground-darken-2;
+    background: transparent;
+}
+
+#confirm-buttons > Button {
+    margin: 0 1;
+    min-width: 10;
+    background: transparent;
+    border: round $border-blurred;
+    color: $foreground;
+    text-style: none;
+}
+
+#confirm-buttons > Button:hover {
+    background: transparent;
+    border: round $border;
+    color: $primary;
+    text-style: bold;
+}
+
+#confirm-buttons > Button:focus {
+    background: transparent;
+    border: round $primary;
+    color: $primary;
+    text-style: bold;
+}
+
+/* Confirm button - error styling only on hover/focus (destructive action) */
+#confirm-buttons > #btn-confirm:hover {
+    border: round $error;
+    color: $error;
+}
+
+#confirm-buttons > #btn-confirm:focus {
+    border: round $error;
+    color: $error;
 }
