@@ -19,6 +19,8 @@ A guide to achieving a polished, modern terminal UI aesthetic based on the Rovr 
 11. [Toast Notifications](#toast-notifications)
 12. [Theming System](#theming-system)
 13. [Responsive Design](#responsive-design)
+14. [Button Styling Patterns](#button-styling-patterns)
+15. [Popup/Dropdown Styling](#popupdropdown-styling)
 
 ---
 
@@ -31,6 +33,34 @@ The aesthetic follows these core principles:
 - **Focus-aware styling** - Clear visual distinction between focused and unfocused states
 - **Minimal chrome** - Reduce visual noise, let content breathe
 - **Color as meaning** - Use semantic colors (primary, error, success, warning) consistently
+- **Centralized styling** - All styles in one TCSS file, not scattered across widget DEFAULT_CSS
+
+### Centralize Styles in TCSS, Not DEFAULT_CSS
+
+**Important:** Avoid using `DEFAULT_CSS` in custom widget classes. Instead, put all styles in your main `.tcss` file. This ensures:
+
+1. **Consistency** - All styling rules in one place, easier to maintain
+2. **Theme coherence** - Styles inherit from CSS variables defined at the top
+3. **No specificity battles** - DEFAULT_CSS can conflict with external styles
+4. **Easier debugging** - One file to check when things look wrong
+
+```python
+# BAD - styles scattered in widget class
+class DetailPanel(Vertical):
+    DEFAULT_CSS = """
+    DetailPanel {
+        background: transparent;
+        border: round $border-blurred;
+    }
+    """
+
+# GOOD - no DEFAULT_CSS, styles in monitor.tcss
+class DetailPanel(Vertical):
+    """Panel showing job details. Styles in monitor.tcss."""
+    pass
+```
+
+The only exception is when you need `!important` to override Textual's internal widget styles (e.g., OptionList borders). Even then, keep it minimal.
 
 ---
 
@@ -685,7 +715,140 @@ TablineTab {
 
 ## Modal Dialogs
 
-### Basic Modal Structure
+### Simplified Single-Button Confirmation
+
+For confirmation dialogs, prefer a single action button with "Esc to dismiss" hint rather than Yes/No buttons. This is cleaner and reduces cognitive load:
+
+```python
+class ConfirmScreen(ModalScreen[bool]):
+    """Modal confirmation dialog. Returns True if confirmed, False if cancelled."""
+
+    BINDINGS = [
+        ("escape", "cancel", "Cancel"),
+        ("y", "confirm", "Yes"),
+    ]
+
+    def __init__(self, message: str, title: str = "Confirm", confirm_label: str = "Confirm"):
+        super().__init__()
+        self._message = message
+        self._title = title
+        self._confirm_label = confirm_label
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="confirm-dialog"):
+            yield Static(self._message, id="confirm-message", markup=True)
+            with Horizontal(id="confirm-buttons"):
+                yield Button(self._confirm_label, id="btn-confirm")
+            yield Static("Esc to dismiss", id="confirm-hint")
+
+    def on_mount(self) -> None:
+        self.query_one("#confirm-dialog").border_title = self._title
+        self.query_one("#btn-confirm").focus()
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "btn-confirm":
+            self.dismiss(True)
+
+    def action_confirm(self) -> None:
+        self.dismiss(True)
+
+    def action_cancel(self) -> None:
+        self.dismiss(False)
+```
+
+### Modal TCSS Pattern
+
+```tcss
+ConfirmScreen {
+    align: center middle;
+    background: transparent;
+}
+
+#confirm-dialog {
+    width: auto;
+    height: auto;
+    min-width: 30;
+    max-width: 80;
+    background: transparent;
+    border: round $primary;
+    border-title-color: $primary;
+    padding: 1 2;
+}
+
+#confirm-message {
+    width: auto;
+    height: auto;
+    background: transparent;
+    text-align: left;
+    margin-bottom: 1;
+    padding: 0 1;
+}
+
+#confirm-buttons {
+    width: 100%;
+    height: 3;
+    align: center middle;
+    background: transparent;
+}
+
+#confirm-hint {
+    width: 100%;
+    height: 1;
+    text-align: center;
+    color: $foreground-darken-2;
+    background: transparent;
+}
+
+/* Button styling - border focus, not background */
+#confirm-buttons > Button {
+    background: transparent;
+    border: round $border-blurred;
+    color: $foreground;
+    text-style: none;
+}
+
+#confirm-buttons > Button:focus {
+    background: transparent;
+    border: round $primary;
+    color: $primary;
+    text-style: bold;
+}
+
+/* Destructive action - error color only on focus */
+#confirm-buttons > #btn-confirm:focus {
+    border: round $error;
+    color: $error;
+}
+```
+
+### Using the Confirmation Dialog
+
+```python
+def on_cancel_job(self, event: DetailPanel.CancelJob) -> None:
+    job = event.job
+    # Rich markup for structured display
+    message = (
+        f"[bold]Job ID:[/]  {job.job_id}\n"
+        f"[bold]Name:[/]    {job.name}"
+    )
+
+    def handle_confirm(confirmed: bool) -> None:
+        if confirmed:
+            self._do_cancel_job(job)
+
+    self.push_screen(
+        ConfirmScreen(
+            message=message,
+            title="Terminate Job",
+            confirm_label="Confirm",
+        ),
+        handle_confirm,
+    )
+```
+
+### Traditional Yes/No Modal (Alternative)
+
+If you need both buttons:
 
 ```python
 class YesOrNo(ModalScreen):
@@ -699,8 +862,6 @@ class YesOrNo(ModalScreen):
     def on_mount(self) -> None:
         self.query_one("#dialog").border_title = "Confirm"
 ```
-
-### Modal TCSS Pattern
 
 ```tcss
 YesOrNo {
@@ -1036,6 +1197,101 @@ class Application(App):
 
 ---
 
+## Button Styling Patterns
+
+### Border-Based Focus Instead of Background
+
+Avoid Textual's default background highlighting for buttons. Use border and text color changes instead for a cleaner look:
+
+```tcss
+/* Base button - transparent with muted border */
+.my-button {
+    background: transparent;
+    border: round $border-blurred;
+    color: $foreground;
+    text-style: none;
+}
+
+/* Hover - border brightens, text turns primary */
+.my-button:hover {
+    background: transparent;
+    border: round $border;
+    color: $primary;
+    text-style: bold;
+}
+
+/* Focus - primary border and text */
+.my-button:focus {
+    background: transparent;
+    border: round $primary;
+    color: $primary;
+    text-style: bold;
+}
+
+/* Disabled state */
+.my-button.-disabled {
+    color: $foreground-darken-2;
+    border: round $border-disabled;
+    text-style: none;
+}
+```
+
+### Destructive Action Buttons
+
+For cancel/delete buttons, apply error styling **only on hover/focus**, not by default. This makes the focused state more visually distinct:
+
+```tcss
+/* Destructive button - normal styling by default */
+#btn-cancel {
+    /* Inherits normal button styling */
+}
+
+/* Only show error color when interacting */
+#btn-cancel:hover {
+    border: round $error;
+    color: $error;
+}
+
+#btn-cancel:focus {
+    border: round $error;
+    color: $error;
+}
+```
+
+**Why not color by default?** If the button is always red, there's less visual distinction when it gains focus. The color change on focus provides clearer feedback.
+
+---
+
+## Popup/Dropdown Styling
+
+### OptionList Popups
+
+When using `OptionList` for dropdown popups, you need `!important` on the border to override Textual's defaults:
+
+```tcss
+MyPopup {
+    layer: overlay;
+    background: transparent;
+    border: round $primary !important;  /* !important required */
+    width: auto;
+    height: auto;
+    max-height: 12;
+}
+
+/* Make individual options transparent */
+MyPopup > .option-list--option {
+    background: transparent;
+}
+
+/* Highlighted option */
+MyPopup:focus > .option-list--option-highlighted {
+    background: $primary;
+    color: $background;
+}
+```
+
+---
+
 ## Quick Reference
 
 | Pattern | Use Case |
@@ -1049,6 +1305,8 @@ class Application(App):
 | `grid-rows: 1fr 3` | Flexible + fixed grid rows |
 | `layer: overlay` | Popup/modal layers |
 | `scrollbar-gutter: stable` | Prevent layout shift |
+| `border: ... !important` | Override OptionList defaults |
+| Border focus, not background | Cleaner button interaction |
 
 ---
 
