@@ -60,6 +60,7 @@ class HpcMonitorApp(App[None]):
         Binding("q", "quit", "Quit"),
         Binding("r", "refresh", "Refresh"),
         Binding("u", "toggle_user", "Toggle User"),
+        Binding("s", "screenshot", "Screenshot", show=False),
     ]
 
     # Reactive attributes - changes automatically trigger watch methods
@@ -139,6 +140,11 @@ class HpcMonitorApp(App[None]):
     async def action_quit(self) -> None:
         """Quit the application."""
         self.exit()
+
+    def action_screenshot(self) -> None:
+        """Save a screenshot to the current directory."""
+        path = self.save_screenshot(path="./")
+        self.notify(f"Screenshot saved: {path}", timeout=3)
 
     def action_refresh(self) -> None:
         """Manually trigger a data refresh."""
