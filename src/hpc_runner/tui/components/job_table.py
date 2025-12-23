@@ -1,5 +1,6 @@
 """Job table widget for displaying HPC jobs."""
 
+from textual.events import Resize
 from textual.message import Message
 from textual.widgets import DataTable
 
@@ -25,16 +26,19 @@ class JobTable(DataTable):
             self.job_info = job_info
             super().__init__()
 
-    # Column definitions: (key, label, width)
-    COLUMNS = [
-        ("job_id", "ID", 8),
-        ("name", "Name", 20),
-        ("user", "User", 10),
+    # Column definitions: (key, label, fixed_width)
+    # Fixed columns have set widths; "name" gets remaining space
+    FIXED_COLUMNS = [
+        ("job_id", "ID", 10),
+        ("user", "User", 12),
         ("queue", "Queue", 12),
         ("status", "Status", 10),
-        ("runtime", "Runtime", 10),
+        ("runtime", "Runtime", 12),
         ("slots", "Slots", 6),
     ]
+    # Name column expands to fill remaining space
+    NAME_COL_MIN = 15  # Minimum width for name column
+    NAME_COL_MAX = 60  # Maximum width for name column
 
     def __init__(
         self,
@@ -60,12 +64,49 @@ class JobTable(DataTable):
             classes=classes,
         )
         self._jobs: dict[str, JobInfo] = {}
+        self._name_col_width = 20  # Default, will be recalculated
+
+    def _calculate_name_width(self, available_width: int) -> int:
+        """Calculate the width for the name column based on available space."""
+        # Sum of fixed column widths
+        fixed_total = sum(w for _, _, w in self.FIXED_COLUMNS)
+        # Account for borders, padding, scrollbar, column separators
+        # Border (2) + padding (4 from CSS) + scrollbar (1) + separators (~7)
+        overhead = 14
+        remaining = available_width - fixed_total - overhead
+        return max(self.NAME_COL_MIN, min(self.NAME_COL_MAX, remaining))
 
     def on_mount(self) -> None:
         """Set up columns when table is mounted."""
         self.border_title = "Jobs"
-        for key, label, width in self.COLUMNS:
+        # Calculate name column width based on current size
+        self._name_col_width = self._calculate_name_width(self.size.width)
+        self._setup_columns()
+
+    def on_resize(self, event: Resize) -> None:
+        """Handle resize events to adjust column widths."""
+        new_width = self._calculate_name_width(event.size.width)
+        if new_width != self._name_col_width:
+            self._name_col_width = new_width
+            # Columns are already set up, just refresh the data
+            # The truncation happens in update_jobs/add_row
+
+    def _setup_columns(self) -> None:
+        """Set up the table columns."""
+        # Add ID column first
+        self.add_column("ID", key="job_id", width=10)
+        # Add Name column with calculated width
+        self.add_column("Name", key="name", width=self._name_col_width)
+        # Add remaining fixed columns
+        for key, label, width in self.FIXED_COLUMNS[1:]:  # Skip job_id
             self.add_column(label, key=key, width=width)
+
+    def _truncate_name(self, name: str) -> str:
+        """Truncate job name to fit in the name column."""
+        if len(name) <= self._name_col_width:
+            return name
+        # Truncate and add ellipsis
+        return name[: self._name_col_width - 1] + "…"
 
     def update_jobs(self, jobs: list[JobInfo]) -> None:
         """Update the table with a new list of jobs.
@@ -92,7 +133,7 @@ class JobTable(DataTable):
             self._jobs[job.job_id] = job
             self.add_row(
                 job.job_id,
-                job.name,
+                self._truncate_name(job.name),
                 job.user,
                 job.queue or "—",
                 self._format_status(job.status),

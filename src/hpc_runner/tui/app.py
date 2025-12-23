@@ -17,7 +17,7 @@ from textual.binding import Binding
 from textual.containers import HorizontalGroup, Vertical
 from textual.reactive import reactive
 from textual.theme import Theme
-from textual.widgets import Header, Static, TabbedContent, TabPane
+from textual.widgets import DataTable, Header, Static, TabbedContent, TabPane
 
 from hpc_runner.core.job_info import JobInfo
 from hpc_runner.schedulers import get_scheduler
@@ -67,7 +67,6 @@ class HpcMonitorApp(App[None]):
         Binding("q", "quit", "Quit"),
         Binding("r", "refresh", "Refresh"),
         Binding("u", "toggle_user", "Toggle User"),
-        Binding("enter", "view_details", "Details", show=False),
         Binding("/", "filter_search", "Search", show=False),
         Binding("s", "screenshot", "Screenshot", show=False),
         Binding("question_mark", "help", "Help", show=False),
@@ -156,6 +155,9 @@ class HpcMonitorApp(App[None]):
         # Fetch initial data
         self._refresh_active_jobs()
 
+        # Focus the job table by default
+        self.query_one("#active-jobs", JobTable).focus()
+
     def _on_refresh_timer(self) -> None:
         """Called by the refresh timer - triggers data fetch."""
         if self.auto_refresh_enabled:
@@ -187,8 +189,13 @@ class HpcMonitorApp(App[None]):
                 self.notify("No job selected", severity="warning", timeout=2)
                 return
 
+            def refocus_table(_: None) -> None:
+                """Restore focus to job table after modal closes."""
+                self.query_one("#active-jobs", JobTable).focus()
+
             self.push_screen(
-                JobDetailsScreen(job=job, extra_details=self._selected_job_extra)
+                JobDetailsScreen(job=job, extra_details=self._selected_job_extra),
+                refocus_table,
             )
         except Exception as e:
             self.notify(f"Error: {e}", severity="error", timeout=3)
@@ -338,6 +345,26 @@ class HpcMonitorApp(App[None]):
         except Exception:
             pass
 
+    def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
+        """Handle Enter key on job table row - open full details popup."""
+        # Get the currently displayed job from the detail panel
+        try:
+            detail_panel = self.query_one("#detail-panel", DetailPanel)
+            job = detail_panel._job
+            if job is None:
+                return
+
+            def refocus_table(_: None) -> None:
+                """Restore focus to job table after modal closes."""
+                self.query_one("#active-jobs", JobTable).focus()
+
+            self.push_screen(
+                JobDetailsScreen(job=job, extra_details=self._selected_job_extra),
+                refocus_table,
+            )
+        except Exception:
+            pass
+
     def on_detail_panel_view_logs(self, event: DetailPanel.ViewLogs) -> None:
         """Handle request to view job logs."""
         job = event.job
@@ -348,17 +375,22 @@ class HpcMonitorApp(App[None]):
             self.notify(f"No {stream} path available", severity="warning", timeout=3)
             return
 
+        def refocus_table(_: None) -> None:
+            """Restore focus to job table after modal closes."""
+            self.query_one("#active-jobs", JobTable).focus()
+
         title = f"{stream}: {job.name}"
-        self.push_screen(LogViewerScreen(file_path=path, title=title))
+        self.push_screen(LogViewerScreen(file_path=path, title=title), refocus_table)
 
     def on_detail_panel_cancel_job(self, event: DetailPanel.CancelJob) -> None:
         """Handle request to cancel a job."""
         job = event.job
 
         def handle_confirm(confirmed: bool) -> None:
-            """Handle confirmation result."""
+            """Handle confirmation result and refocus table."""
             if confirmed:
                 self._do_cancel_job(job)
+            self.query_one("#active-jobs", JobTable).focus()
 
         # Format job details for confirmation dialog
         message = (

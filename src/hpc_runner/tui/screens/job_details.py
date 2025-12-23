@@ -26,6 +26,7 @@ class JobDetailsScreen(ModalScreen[None]):
         Binding("q", "close", "Close"),
         Binding("g", "go_top", "Top", show=False),
         Binding("G", "go_bottom", "Bottom", show=False),
+        Binding("s", "screenshot", "Screenshot", show=False),
     ]
 
     def __init__(
@@ -53,7 +54,8 @@ class JobDetailsScreen(ModalScreen[None]):
     def on_mount(self) -> None:
         """Set up the dialog with job content."""
         dialog = self.query_one("#job-details-dialog", Vertical)
-        dialog.border_title = f"Job Details: {self._job.name}"
+        # Keep title short to avoid truncation
+        dialog.border_title = f"Job: {self._job.job_id}"
 
         # Build and display content
         content = self._build_content()
@@ -65,6 +67,7 @@ class JobDetailsScreen(ModalScreen[None]):
         """Build the formatted job details content."""
         job = self._job
         lines: list[str] = []
+        resources = self._extra.get("resources", {})
 
         # Section: Basic Info
         lines.append("═══ Basic Information ═══")
@@ -76,6 +79,22 @@ class JobDetailsScreen(ModalScreen[None]):
         lines.append(f"  Queue:       {job.queue or '—'}")
         lines.append(f"  Node:        {job.node or '—'}")
         lines.append("")
+
+        # Section: Command
+        job_args = self._extra.get("job_args", [])
+        script = self._extra.get("script_file")
+        command = self._extra.get("command")  # For qrsh interactive jobs
+        if job_args or script or command:
+            lines.append("═══ Command ═══")
+            lines.append("")
+            if command:
+                # Interactive job command (from QRSH_COMMAND)
+                lines.append(f"  Command:     {command}")
+            elif script:
+                lines.append(f"  Script:      {script}")
+                if job_args:
+                    lines.append(f"  Arguments:   {' '.join(job_args)}")
+            lines.append("")
 
         # Section: Timing
         lines.append("═══ Timing ═══")
@@ -96,32 +115,36 @@ class JobDetailsScreen(ModalScreen[None]):
         # Section: Resources
         lines.append("═══ Resources ═══")
         lines.append("")
-        lines.append(f"  Slots/CPUs:  {job.cpu or '—'}")
-        if job.memory:
-            lines.append(f"  Memory:      {job.memory}")
+
+        # Slots from PE
+        pe_name = self._extra.get("pe_name")
+        pe_range = self._extra.get("pe_range")
+        if pe_name:
+            lines.append(f"  PE:          {pe_name} ({pe_range or job.cpu or '?'} slots)")
+        else:
+            lines.append(f"  Slots/CPUs:  {job.cpu or '—'}")
+
+        # Memory - check resources dict for common memory keys
+        memory = job.memory
+        if not memory:
+            for key in ("h_vmem", "mem_free", "virtual_free", "mem", "memory"):
+                if key in resources:
+                    memory = resources[key]
+                    break
+        if memory:
+            lines.append(f"  Memory:      {memory}")
+
+        # GPU
         if job.gpu:
             lines.append(f"  GPUs:        {job.gpu}")
 
-        # Extra resource requests from qstat -j
-        resources = self._extra.get("resources", {})
+        # All requested resources
         if resources:
             lines.append("")
-            lines.append("  Requested Resources:")
+            lines.append("  All Requested Resources:")
             for name, value in sorted(resources.items()):
                 lines.append(f"    {name}: {value}")
         lines.append("")
-
-        # Section: Parallel Environment
-        pe_name = self._extra.get("pe_name")
-        pe_range = self._extra.get("pe_range")
-        if pe_name or pe_range:
-            lines.append("═══ Parallel Environment ═══")
-            lines.append("")
-            if pe_name:
-                lines.append(f"  PE Name:     {pe_name}")
-            if pe_range:
-                lines.append(f"  Slot Range:  {pe_range}")
-            lines.append("")
 
         # Section: Paths
         lines.append("═══ Paths ═══")
@@ -129,9 +152,6 @@ class JobDetailsScreen(ModalScreen[None]):
         cwd = self._extra.get("cwd")
         if cwd:
             lines.append(f"  Working Dir: {cwd}")
-        script = self._extra.get("script_file")
-        if script:
-            lines.append(f"  Script:      {script}")
         lines.append(f"  Stdout:      {job.stdout_path or '—'}")
         lines.append(f"  Stderr:      {job.stderr_path or '—'}")
         lines.append("")
@@ -183,3 +203,8 @@ class JobDetailsScreen(ModalScreen[None]):
         """Scroll to bottom."""
         text_area = self.query_one("#job-details-content", TextArea)
         text_area.cursor_location = (len(text_area.document.lines) - 1, 0)
+
+    def action_screenshot(self) -> None:
+        """Save a screenshot."""
+        path = self.app.save_screenshot(path="./")
+        self.app.notify(f"Screenshot saved: {path}", timeout=3)

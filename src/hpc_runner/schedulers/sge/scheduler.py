@@ -472,7 +472,7 @@ class SGEScheduler(BaseScheduler):
         # Separate extra details from JobInfo fields
         extra_details: dict[str, object] = {}
         for key in ("resources", "pe_name", "pe_range", "cwd", "script_file",
-                    "dependencies", "project", "department"):
+                    "dependencies", "project", "department", "job_args", "command"):
             if key in job_data:
                 extra_details[key] = job_data[key]
 
@@ -488,6 +488,16 @@ class SGEScheduler(BaseScheduler):
                 basic_info.stderr_path = job_data["stderr_path"]
             if job_data.get("node"):
                 basic_info.node = job_data["node"]
+
+            # Always use timing from detailed qstat -j output (more reliable)
+            if job_data.get("submit_time"):
+                basic_info.submit_time = datetime.fromtimestamp(job_data["submit_time"])
+            if job_data.get("start_time"):
+                basic_info.start_time = datetime.fromtimestamp(job_data["start_time"])
+                # Calculate runtime if running
+                if basic_info.status == JobStatus.RUNNING:
+                    basic_info.runtime = datetime.now() - basic_info.start_time
+
             return basic_info, extra_details
         else:
             # Build from scratch using qstat -j data
@@ -501,6 +511,13 @@ class SGEScheduler(BaseScheduler):
                 stderr_path=job_data.get("stderr_path"),
                 node=job_data.get("node"),
             )
+            # Add timing info
+            if job_data.get("submit_time"):
+                job_info.submit_time = datetime.fromtimestamp(job_data["submit_time"])
+            if job_data.get("start_time"):
+                job_info.start_time = datetime.fromtimestamp(job_data["start_time"])
+                if job_info.status == JobStatus.RUNNING:
+                    job_info.runtime = datetime.now() - job_info.start_time
             return job_info, extra_details
 
     def _parse_qstat_j_xml(self, xml_output: str) -> dict[str, object]:
@@ -560,6 +577,53 @@ class SGEScheduler(BaseScheduler):
         script_elem = job_info.find(".//JB_script_file")
         if script_elem is not None and script_elem.text:
             data["script_file"] = script_elem.text
+
+        # Job arguments/command
+        job_args: list[str] = []
+        for arg_elem in job_info.findall(".//JB_job_args//ST_name"):
+            if arg_elem.text:
+                job_args.append(arg_elem.text)
+        if job_args:
+            data["job_args"] = job_args
+
+        # Submission time
+        submit_elem = job_info.find(".//JB_submission_time")
+        if submit_elem is not None and submit_elem.text:
+            try:
+                data["submit_time"] = int(submit_elem.text)
+            except ValueError:
+                pass
+
+        # Start time (for running jobs) - in JB_ja_tasks/ulong_sublist/JAT_start_time
+        task_start = job_info.find(".//JB_ja_tasks/ulong_sublist/JAT_start_time")
+        if task_start is not None and task_start.text:
+            try:
+                data["start_time"] = int(task_start.text)
+            except ValueError:
+                pass
+
+        # Also check direct JAT_start_time (alternative structure)
+        if "start_time" not in data:
+            start_elem = job_info.find(".//JAT_start_time")
+            if start_elem is not None and start_elem.text:
+                try:
+                    data["start_time"] = int(start_elem.text)
+                except ValueError:
+                    pass
+
+        # For interactive jobs (qrsh), get command from QRSH_COMMAND env var
+        for env_elem in job_info.findall(".//JB_env_list/job_sublist"):
+            var_elem = env_elem.find("VA_variable")
+            val_elem = env_elem.find("VA_value")
+            if var_elem is not None and var_elem.text == "QRSH_COMMAND":
+                if val_elem is not None and val_elem.text:
+                    # QRSH_COMMAND uses special separator (often \x00 or similar)
+                    # Replace with spaces for display
+                    cmd = val_elem.text
+                    # Replace non-printable chars with spaces
+                    cmd = "".join(c if c.isprintable() else " " for c in cmd)
+                    data["command"] = cmd.strip()
+                break
 
         # stdout path - look for PN_path in stdout_path_list
         stdout_path_elem = job_info.find(".//JB_stdout_path_list//PN_path")
