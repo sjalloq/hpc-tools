@@ -2,19 +2,50 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from textual import on
 from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical
+from textual.events import Key
 from textual.message import Message
 from textual.widgets import Button, Static
 
 from hpc_runner.core.job_info import JobInfo
 
 
+class ButtonBar(Horizontal):
+    """Horizontal container with arrow key navigation between buttons."""
+
+    def on_key(self, event: Key) -> None:
+        """Handle arrow key navigation between buttons."""
+        if event.key not in ("left", "right"):
+            return
+
+        buttons = [btn for btn in self.query(Button).results(Button) if not btn.disabled]
+        if not buttons:
+            return
+
+        focused = self.app.focused
+        if not isinstance(focused, Button) or focused not in buttons:
+            return
+
+        idx = buttons.index(focused)
+        if event.key == "right":
+            next_idx = (idx + 1) % len(buttons)
+        else:
+            next_idx = (idx - 1) % len(buttons)
+
+        buttons[next_idx].focus()
+        event.prevent_default()
+        event.stop()
+
+
 class DetailPanel(Vertical):
     """Panel showing detailed information for selected job.
 
     Styles are defined in monitor.tcss, not DEFAULT_CSS.
+    Arrow keys navigate between buttons.
     """
 
     class ViewLogs(Message):
@@ -32,7 +63,7 @@ class DetailPanel(Vertical):
             super().__init__()
             self.job = job
 
-    def __init__(self, **kwargs) -> None:
+    def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self._job: JobInfo | None = None
 
@@ -72,7 +103,7 @@ class DetailPanel(Vertical):
                 yield Static("", id="detail-output", classes="detail-value")
 
             # Buttons (styled via monitor.tcss)
-            with Horizontal(id="detail-buttons"):
+            with ButtonBar(id="detail-buttons"):
                 yield Button("View stdout", id="btn-stdout")
                 yield Button("View stderr", id="btn-stderr")
                 yield Button("Cancel", id="btn-cancel")

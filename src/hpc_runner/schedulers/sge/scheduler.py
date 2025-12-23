@@ -448,8 +448,106 @@ class SGEScheduler(BaseScheduler):
         return True
 
     def get_job_details(self, job_id: str) -> JobInfo:
-        """Get detailed information for an SGE job.
+        """Get detailed information for an SGE job using qstat -j -xml.
 
-        TODO: Implement using qstat -j for active jobs, qacct for completed.
+        Parses the full job details including output paths.
         """
-        raise NotImplementedError("SGE get_job_details() not yet implemented")
+        cmd = ["qstat", "-j", job_id, "-xml"]
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        except subprocess.CalledProcessError:
+            raise ValueError(f"Job {job_id} not found")
+        except FileNotFoundError:
+            raise RuntimeError("qstat not found")
+
+        # Parse XML output
+        job_data = self._parse_qstat_j_xml(result.stdout)
+
+        # Get basic info from qstat -xml first
+        basic_jobs = self.list_active_jobs()
+        basic_info = next((j for j in basic_jobs if j.job_id == job_id), None)
+
+        if basic_info:
+            # Merge detailed info with basic info
+            if job_data.get("stdout_path"):
+                basic_info.stdout_path = job_data["stdout_path"]
+            if job_data.get("stderr_path"):
+                basic_info.stderr_path = job_data["stderr_path"]
+            if job_data.get("node"):
+                basic_info.node = job_data["node"]
+            return basic_info
+        else:
+            # Build from scratch using qstat -j data
+            return JobInfo(
+                job_id=job_id,
+                name=job_data.get("name", job_id),
+                user=job_data.get("user", "unknown"),
+                status=job_data.get("status", JobStatus.UNKNOWN),
+                queue=job_data.get("queue"),
+                stdout_path=job_data.get("stdout_path"),
+                stderr_path=job_data.get("stderr_path"),
+                node=job_data.get("node"),
+            )
+
+    def _parse_qstat_j_xml(self, xml_output: str) -> dict[str, object]:
+        """Parse qstat -j -xml output to extract job details."""
+        import xml.etree.ElementTree as ET
+
+        data: dict[str, object] = {}
+
+        try:
+            root = ET.fromstring(xml_output)
+        except ET.ParseError:
+            return data
+
+        # Find job info element
+        job_info = root.find(".//JB_job_number/..")
+        if job_info is None:
+            # Try alternative structure
+            job_info = root.find(".//djob_info/element")
+        if job_info is None:
+            return data
+
+        # Extract fields
+        name_elem = job_info.find(".//JB_job_name")
+        if name_elem is not None and name_elem.text:
+            data["name"] = name_elem.text
+
+        owner_elem = job_info.find(".//JB_owner")
+        if owner_elem is not None and owner_elem.text:
+            data["user"] = owner_elem.text
+
+        # Get cwd for resolving relative paths
+        cwd: Path | None = None
+        cwd_elem = job_info.find(".//JB_cwd")
+        if cwd_elem is not None and cwd_elem.text:
+            cwd = Path(cwd_elem.text)
+
+        # stdout path - look for PN_path in stdout_path_list
+        stdout_path_elem = job_info.find(".//JB_stdout_path_list//PN_path")
+        if stdout_path_elem is not None and stdout_path_elem.text:
+            stdout_path = Path(stdout_path_elem.text)
+            # Resolve relative paths against cwd
+            if not stdout_path.is_absolute() and cwd:
+                stdout_path = cwd / stdout_path
+            data["stdout_path"] = stdout_path
+
+        # stderr path
+        stderr_path_elem = job_info.find(".//JB_stderr_path_list//PN_path")
+        if stderr_path_elem is not None and stderr_path_elem.text:
+            stderr_path = Path(stderr_path_elem.text)
+            if not stderr_path.is_absolute() and cwd:
+                stderr_path = cwd / stderr_path
+            data["stderr_path"] = stderr_path
+
+        # Check merge flag
+        merge_elem = job_info.find(".//JB_merge_stderr")
+        if merge_elem is not None and merge_elem.text:
+            if merge_elem.text.lower() in ("true", "1", "y"):
+                data["merge"] = True
+
+        # If merge is enabled and we have stdout but no stderr, use stdout for both
+        if data.get("merge") and data.get("stdout_path") and not data.get("stderr_path"):
+            data["stderr_path"] = data["stdout_path"]
+
+        return data

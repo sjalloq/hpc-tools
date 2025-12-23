@@ -29,7 +29,7 @@ from hpc_runner.tui.components import (
     JobTable,
 )
 from hpc_runner.tui.providers import JobProvider
-from hpc_runner.tui.screens import ConfirmScreen
+from hpc_runner.tui.screens import ConfirmScreen, LogViewerScreen
 
 
 # Custom theme inspired by Nord color palette for a muted, professional look.
@@ -277,20 +277,39 @@ class HpcMonitorApp(App[None]):
         self._apply_filters_and_display()
 
     def on_job_table_job_selected(self, event: JobTable.JobSelected) -> None:
-        """Handle job selection in the table."""
+        """Handle job selection in the table.
+
+        Fetches detailed job info (including output paths) when a job is selected.
+        """
+        # Start with basic info from the event
+        job_info = event.job_info
+
+        # Try to get detailed info (including stdout/stderr paths)
+        try:
+            detailed_info = self._scheduler.get_job_details(job_info.job_id)
+            job_info = detailed_info
+        except (NotImplementedError, Exception):
+            # Scheduler doesn't support details or call failed - use basic info
+            pass
+
         try:
             detail_panel = self.query_one("#detail-panel", DetailPanel)
-            detail_panel.update_job(event.job_info)
+            detail_panel.update_job(job_info)
         except Exception:
             pass
 
     def on_detail_panel_view_logs(self, event: DetailPanel.ViewLogs) -> None:
         """Handle request to view job logs."""
-        # TODO: Implement log viewer modal in Stage 13
         job = event.job
         stream = event.stream
         path = job.stdout_path if stream == "stdout" else job.stderr_path
-        self.notify(f"Log viewer coming soon: {path}", timeout=3)
+
+        if path is None:
+            self.notify(f"No {stream} path available", severity="warning", timeout=3)
+            return
+
+        title = f"{stream}: {job.name}"
+        self.push_screen(LogViewerScreen(file_path=path, title=title))
 
     def on_detail_panel_cancel_job(self, event: DetailPanel.CancelJob) -> None:
         """Handle request to cancel a job."""
