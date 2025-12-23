@@ -235,3 +235,54 @@ JobTable:blur {
     content-align: center middle;
     color: $foreground-darken-2;
 }
+
+/* ============================================
+   Filter Bar Styling
+   ============================================ */
+
+#active-content {
+    height: 1fr;
+    background: transparent;
+}
+
+FilterBar {
+    height: auto;
+    min-height: 3;
+    padding: 0 1;
+    background: transparent;
+    /* Transparency reset */
+    opacity: 1 !important;
+    background-tint: transparent !important;
+}
+
+FilterBar > Static.filter-label {
+    width: auto;
+    padding: 1 1 0 0;
+    color: $foreground-darken-1;
+}
+
+FilterBar > Select {
+    width: 16;
+    margin: 0 1 0 0;
+    background: transparent;
+}
+
+FilterBar > Select > SelectCurrent {
+    background: $surface;
+}
+
+FilterBar > Select:focus > SelectCurrent {
+    background: $primary;
+    color: $background;
+}
+
+FilterBar > Input {
+    width: 24;
+    background: $surface;
+    border: none;
+}
+
+FilterBar > Input:focus {
+    background: $surface;
+    border: tall $primary;
+}

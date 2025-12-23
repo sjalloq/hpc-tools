@@ -14,13 +14,14 @@ from typing import ClassVar
 
 from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.containers import HorizontalGroup
+from textual.containers import HorizontalGroup, Vertical
 from textual.reactive import reactive
 from textual.theme import Theme
 from textual.widgets import Header, Static, TabbedContent, TabPane
 
+from hpc_runner.core.job_info import JobInfo
 from hpc_runner.schedulers import get_scheduler
-from hpc_runner.tui.components import JobTable
+from hpc_runner.tui.components import FilterBar, JobTable
 from hpc_runner.tui.providers import JobProvider
 
 
@@ -80,12 +81,20 @@ class HpcMonitorApp(App[None]):
         self._scheduler = get_scheduler()
         self._job_provider = JobProvider(self._scheduler)
 
+        # Store full job list for client-side filtering
+        self._all_jobs: list[JobInfo] = []
+        self._status_filter: str | None = None
+        self._queue_filter: str | None = None
+        self._search_filter: str = ""
+
     def compose(self) -> ComposeResult:
         """Create child widgets for the app."""
         yield Header()
         with TabbedContent(id="tabs"):
             with TabPane("Active", id="active-tab"):
-                yield JobTable(id="active-jobs")
+                with Vertical(id="active-content"):
+                    yield FilterBar(id="active-filter-bar")
+                    yield JobTable(id="active-jobs")
             with TabPane("Completed", id="completed-tab"):
                 yield Static(
                     "Completed jobs will appear here", id="completed-placeholder"
@@ -149,18 +158,64 @@ class HpcMonitorApp(App[None]):
             jobs = await self._job_provider.get_active_jobs(
                 user_filter=self.user_filter,
             )
-            table = self.query_one("#active-jobs", JobTable)
-            table.update_jobs(jobs)
+            # Store all jobs for client-side filtering
+            self._all_jobs = jobs
 
-            # Update subtitle with job count
-            count = len(jobs)
-            filter_text = "my" if self.user_filter == "me" else "all"
-            self.sub_title = (
-                f"{self._user}@{self._hostname} ({self._scheduler.name}) "
-                f"· {count} {filter_text} job{'s' if count != 1 else ''}"
-            )
+            # Update queue dropdown with available queues
+            queues = sorted(set(j.queue for j in jobs if j.queue))
+            try:
+                filter_bar = self.query_one("#active-filter-bar", FilterBar)
+                filter_bar.update_queues(queues)
+            except Exception:
+                pass
+
+            # Apply filters and update display
+            self._apply_filters_and_display()
+
         except Exception as e:
             self.notify(f"Error: {e}", severity="error", timeout=3)
+
+    def _apply_filters_and_display(self) -> None:
+        """Apply current filters and update the job table."""
+        filtered = self._all_jobs
+
+        # Filter by status
+        if self._status_filter:
+            filtered = [
+                j for j in filtered
+                if j.status.name.lower() == self._status_filter.lower()
+            ]
+
+        # Filter by queue
+        if self._queue_filter:
+            filtered = [j for j in filtered if j.queue == self._queue_filter]
+
+        # Filter by search (name or ID)
+        if self._search_filter:
+            search = self._search_filter.lower()
+            filtered = [
+                j for j in filtered
+                if search in j.name.lower() or search in j.job_id.lower()
+            ]
+
+        # Update table
+        table = self.query_one("#active-jobs", JobTable)
+        table.update_jobs(filtered)
+
+        # Update subtitle with counts
+        total = len(self._all_jobs)
+        shown = len(filtered)
+        filter_text = "my" if self.user_filter == "me" else "all"
+        if shown == total:
+            self.sub_title = (
+                f"{self._user}@{self._hostname} ({self._scheduler.name}) "
+                f"· {total} {filter_text} job{'s' if total != 1 else ''}"
+            )
+        else:
+            self.sub_title = (
+                f"{self._user}@{self._hostname} ({self._scheduler.name}) "
+                f"· {shown}/{total} {filter_text} jobs"
+            )
 
     def action_toggle_user(self) -> None:
         """Toggle between showing current user's jobs and all jobs."""
@@ -171,3 +226,10 @@ class HpcMonitorApp(App[None]):
         self.notify(f"Filter: {new_value}", timeout=1)
         # Trigger refresh with new filter
         self._refresh_active_jobs()
+
+    def on_filter_bar_filter_changed(self, event: FilterBar.FilterChanged) -> None:
+        """Handle filter bar changes."""
+        self._status_filter = event.status
+        self._queue_filter = event.queue
+        self._search_filter = event.search
+        self._apply_filters_and_display()
