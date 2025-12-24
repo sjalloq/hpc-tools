@@ -30,15 +30,13 @@ class JobTable(DataTable):
     # Fixed columns have set widths; "name" gets remaining space
     FIXED_COLUMNS = [
         ("job_id", "ID", 10),
-        ("user", "User", 12),
+        ("user", "User", 14),
         ("queue", "Queue", 12),
         ("status", "Status", 10),
         ("runtime", "Runtime", 12),
         ("slots", "Slots", 6),
     ]
-    # Name column expands to fill remaining space
     NAME_COL_MIN = 15  # Minimum width for name column
-    NAME_COL_MAX = 60  # Maximum width for name column
 
     def __init__(
         self,
@@ -66,37 +64,89 @@ class JobTable(DataTable):
         self._jobs: dict[str, JobInfo] = {}
         self._name_col_width = 20  # Default, will be recalculated
 
-    def _calculate_name_width(self, available_width: int) -> int:
-        """Calculate the width for the name column based on available space."""
-        # Sum of fixed column widths
-        fixed_total = sum(w for _, _, w in self.FIXED_COLUMNS)
-        # Account for borders, padding, scrollbar, column separators
-        # Border (2) + padding (4 from CSS) + scrollbar (1) + separators (~7)
-        overhead = 14
-        remaining = available_width - fixed_total - overhead
-        return max(self.NAME_COL_MIN, min(self.NAME_COL_MAX, remaining))
-
     def on_mount(self) -> None:
-        """Set up columns when table is mounted."""
+        """Set up columns on mount using the best available width."""
         self.border_title = "Jobs"
-        # Calculate name column width based on current size
-        self._name_col_width = self._calculate_name_width(self.size.width)
         self._setup_columns()
+        self.call_after_refresh(self._sync_columns_to_current_width)
 
     def on_resize(self, event: Resize) -> None:
-        """Handle resize events to adjust column widths."""
-        new_width = self._calculate_name_width(event.size.width)
-        if new_width != self._name_col_width:
-            self._name_col_width = new_width
-            # Columns are already set up, just refresh the data
-            # The truncation happens in update_jobs/add_row
+        """Handle resize events by syncing column widths to the new size."""
+        del event
+        self.call_after_refresh(self._sync_columns_to_current_width)
+
+    def _get_table_width(self) -> int:
+        """Return the width available for columns within the table."""
+        content_size = getattr(self, "content_size", None)
+        if content_size is not None:
+            return content_size.width
+        return self.size.width or self.app.console.size.width
+
+    def _calculate_name_width(self, table_width: int) -> int:
+        """Calculate the name column width to avoid horizontal overflow."""
+        fixed_total = sum(w for _, _, w in self.FIXED_COLUMNS)
+        column_spacing = (len(self.FIXED_COLUMNS) + 1) * 2
+        name_width = table_width - fixed_total - column_spacing
+        return max(self.NAME_COL_MIN, name_width)
+
+    def _sync_columns_to_current_width(self) -> None:
+        """Sync the name column width after layout updates size information."""
+        table_width = self._get_table_width()
+        if table_width <= 0:
+            return
+        desired_width = self._calculate_name_width(table_width)
+        if desired_width != self._name_col_width:
+            self._set_name_column_width(desired_width)
+        self.call_after_refresh(self._post_layout_adjust, table_width)
+
+    def _post_layout_adjust(self, table_width: int) -> None:
+        """Trim name width if virtual width still overflows after layout."""
+        if table_width <= 0:
+            return
+        scrollbar_width = 1 if self.show_vertical_scrollbar else 0
+        effective_width = table_width - scrollbar_width
+        overflow = self.virtual_size.width - effective_width
+        if overflow <= 0 or self._name_col_width <= self.NAME_COL_MIN:
+            return
+        adjusted_width = max(self.NAME_COL_MIN, self._name_col_width - overflow)
+        if adjusted_width != self._name_col_width:
+            self._set_name_column_width(adjusted_width)
+
+    def _set_name_column_width(self, width: int) -> None:
+        """Apply name column width and refresh rows for correct truncation."""
+        self._name_col_width = width
+        name_column = self.columns.get("name")
+        if name_column is not None:
+            name_column.width = width
+        if self._jobs:
+            self._refresh_rows_for_width()
+
+    def _refresh_rows_for_width(self) -> None:
+        """Rebuild rows in the current order to match the new name width."""
+        row_job_ids = [str(row_key.value) for row_key in self.rows.keys()]
+        ordered_jobs: list[JobInfo] = []
+        seen: set[str] = set()
+        for job_id in row_job_ids:
+            job = self._jobs.get(job_id)
+            if job is not None:
+                ordered_jobs.append(job)
+                seen.add(job_id)
+        if len(ordered_jobs) != len(self._jobs):
+            ordered_jobs.extend(
+                job for job_id, job in self._jobs.items() if job_id not in seen
+            )
+        self.update_jobs(ordered_jobs)
 
     def _setup_columns(self) -> None:
         """Set up the table columns."""
         # Add ID column first
         self.add_column("ID", key="job_id", width=10)
-        # Add Name column with calculated width
-        self.add_column("Name", key="name", width=self._name_col_width)
+        # Add Name column that expands to fill remaining space
+        self.add_column(
+            "Name",
+            key="name",
+            width=self._name_col_width,
+        )
         # Add remaining fixed columns
         for key, label, width in self.FIXED_COLUMNS[1:]:  # Skip job_id
             self.add_column(label, key=key, width=width)
