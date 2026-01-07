@@ -326,6 +326,7 @@ class HpcMonitorApp(App[None]):
         # Start with basic info from the event
         job_info = event.job_info
         self._selected_job_extra = {}
+        self._last_detail_error: str | None = None
 
         # Try to get detailed info (including stdout/stderr paths)
         try:
@@ -335,13 +336,20 @@ class HpcMonitorApp(App[None]):
                 job_info, self._selected_job_extra = result
             else:
                 job_info = result
-        except (NotImplementedError, Exception):
+        except (NotImplementedError, Exception) as exc:
             # Scheduler doesn't support details or call failed - use basic info
+            self._last_detail_error = f"{type(exc).__name__}: {exc}"
             pass
 
         try:
             detail_panel = self.query_one("#detail-panel", DetailPanel)
             detail_panel.update_job(job_info)
+            if self._last_detail_error:
+                self.notify(
+                    f"Details fallback for job {job_info.job_id}: {self._last_detail_error}",
+                    severity="warning",
+                    timeout=5,
+                )
         except Exception:
             pass
 

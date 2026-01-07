@@ -83,7 +83,13 @@ class SGEScheduler(BaseScheduler):
 
         try:
             cmd = ["qsub", script_path]
-            result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                errors="replace",
+                check=True,
+            )
             job_id = parse_qsub_output(result.stdout)
 
             if job_id is None:
@@ -366,7 +372,13 @@ class SGEScheduler(BaseScheduler):
             cmd.extend(["-u", "*"])
 
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                errors="replace",
+                check=True,
+            )
         except subprocess.CalledProcessError:
             # qstat failed - likely no jobs or scheduler not available
             return []
@@ -460,14 +472,25 @@ class SGEScheduler(BaseScheduler):
         """
         cmd = ["qstat", "-j", job_id, "-xml"]
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, check=True)
-        except subprocess.CalledProcessError:
-            raise ValueError(f"Job {job_id} not found")
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                errors="replace",
+                check=True,
+            )
+            output = result.stdout
+        except subprocess.CalledProcessError as exc:
+            output = exc.stdout or exc.stderr or ""
+            if not output:
+                raise ValueError(f"Job {job_id} not found")
         except FileNotFoundError:
             raise RuntimeError("qstat not found")
 
         # Parse XML output
-        job_data = self._parse_qstat_j_xml(result.stdout)
+        job_data = self._parse_qstat_j_xml(output)
+        if not job_data and output:
+            raise ValueError(f"Job {job_id} not found")
 
         # Separate extra details from JobInfo fields
         extra_details: dict[str, object] = {}
@@ -535,10 +558,10 @@ class SGEScheduler(BaseScheduler):
 
         data: dict[str, object] = {}
 
-        try:
-            root = ET.fromstring(xml_output)
-        except ET.ParseError:
+        root = self._parse_xml_root(xml_output)
+        if root is None:
             return data
+        self._strip_xml_namespaces(root)
 
         # Find job info element
         job_info = root.find(".//JB_job_number/..")
@@ -587,27 +610,29 @@ class SGEScheduler(BaseScheduler):
             data["job_args"] = job_args
 
         # Submission time
-        submit_elem = job_info.find(".//JB_submission_time")
-        if submit_elem is not None and submit_elem.text:
+        submit_text = job_info.findtext(".//JB_submission_time")
+        if submit_text:
             try:
-                data["submit_time"] = int(submit_elem.text)
+                data["submit_time"] = int(submit_text)
             except ValueError:
                 pass
 
         # Start time (for running jobs) - in JB_ja_tasks/ulong_sublist/JAT_start_time
-        task_start = job_info.find(".//JB_ja_tasks/ulong_sublist/JAT_start_time")
-        if task_start is not None and task_start.text:
+        task_start_text = job_info.findtext(
+            ".//JB_ja_tasks/ulong_sublist/JAT_start_time"
+        )
+        if task_start_text:
             try:
-                data["start_time"] = int(task_start.text)
+                data["start_time"] = int(task_start_text)
             except ValueError:
                 pass
 
         # Also check direct JAT_start_time (alternative structure)
         if "start_time" not in data:
-            start_elem = job_info.find(".//JAT_start_time")
-            if start_elem is not None and start_elem.text:
+            start_text = job_info.findtext(".//JAT_start_time")
+            if start_text:
                 try:
-                    data["start_time"] = int(start_elem.text)
+                    data["start_time"] = int(start_text)
                 except ValueError:
                     pass
 
@@ -617,12 +642,7 @@ class SGEScheduler(BaseScheduler):
             val_elem = env_elem.find("VA_value")
             if var_elem is not None and var_elem.text == "QRSH_COMMAND":
                 if val_elem is not None and val_elem.text:
-                    # QRSH_COMMAND uses special separator (often \x00 or similar)
-                    # Replace with spaces for display
-                    cmd = val_elem.text
-                    # Replace non-printable chars with spaces
-                    cmd = "".join(c if c.isprintable() else " " for c in cmd)
-                    data["command"] = cmd.strip()
+                    data["command"] = self._normalize_qrsh_command(val_elem.text)
                 break
 
         # stdout path - look for PN_path in stdout_path_list
@@ -699,3 +719,31 @@ class SGEScheduler(BaseScheduler):
             data["dependencies"] = dependencies
 
         return data
+
+    def _strip_xml_namespaces(self, root: "ET.Element") -> None:
+        """Strip namespaces so ElementTree can match tag names directly."""
+        for elem in root.iter():
+            if isinstance(elem.tag, str) and "}" in elem.tag:
+                elem.tag = elem.tag.split("}", 1)[1]
+
+    def _normalize_qrsh_command(self, value: str) -> str:
+        """Normalize QRSH_COMMAND by replacing non-ASCII separators with spaces."""
+        cleaned = "".join(ch if 32 <= ord(ch) < 127 else " " for ch in value)
+        return " ".join(cleaned.split())
+
+    def _parse_xml_root(self, xml_output: str) -> "ET.Element | None":
+        """Parse XML output, tolerating leading/trailing non-XML noise."""
+        import xml.etree.ElementTree as ET
+
+        try:
+            return ET.fromstring(xml_output)
+        except ET.ParseError:
+            pass
+        start = xml_output.find("<")
+        end = xml_output.rfind(">")
+        if start == -1 or end == -1 or end <= start:
+            return None
+        try:
+            return ET.fromstring(xml_output[start : end + 1])
+        except ET.ParseError:
+            return None

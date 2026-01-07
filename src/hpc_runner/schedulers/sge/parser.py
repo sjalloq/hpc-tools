@@ -1,6 +1,7 @@
 """SGE output parsing utilities."""
 
 import re
+from datetime import datetime
 import xml.etree.ElementTree as ET
 from typing import Any
 
@@ -16,6 +17,7 @@ def parse_qstat_xml(xml_output: str) -> dict[str, Any]:
 
     try:
         root = ET.fromstring(xml_output)
+        _strip_namespaces(root)
 
         # Parse queue_info (running jobs)
         for job_list in root.findall(".//job_list"):
@@ -96,20 +98,19 @@ def _parse_job_element(elem: ET.Element) -> dict[str, Any] | None:
         job_info["slots"] = int(slots_elem.text)
 
     # Submission time (epoch seconds)
-    submit_elem = elem.find("JB_submission_time")
-    if submit_elem is not None and submit_elem.text:
+    submit_text = elem.findtext(".//JB_submission_time")
+    if submit_text:
         try:
-            job_info["submit_time"] = int(submit_elem.text)
+            job_info["submit_time"] = int(submit_text)
         except ValueError:
             pass
 
     # Start time (epoch seconds, only for running jobs)
-    start_elem = elem.find("JAT_start_time")
-    if start_elem is not None and start_elem.text:
-        try:
-            job_info["start_time"] = int(start_elem.text)
-        except ValueError:
-            pass
+    start_text = elem.findtext(".//JAT_start_time")
+    if start_text:
+        start_epoch = _parse_sge_timestamp(start_text)
+        if start_epoch is not None:
+            job_info["start_time"] = start_epoch
 
     # Array task ID
     tasks_elem = elem.find("tasks")
@@ -117,6 +118,13 @@ def _parse_job_element(elem: ET.Element) -> dict[str, Any] | None:
         job_info["array_task_id"] = tasks_elem.text
 
     return job_info
+
+
+def _strip_namespaces(root: ET.Element) -> None:
+    """Strip XML namespaces so ElementTree finds simple tag names."""
+    for elem in root.iter():
+        if isinstance(elem.tag, str) and "}" in elem.tag:
+            elem.tag = elem.tag.split("}", 1)[1]
 
 
 def parse_qstat_plain(output: str) -> dict[str, Any]:
@@ -151,6 +159,15 @@ def parse_qstat_plain(output: str) -> dict[str, Any]:
                 "state": parts[4],
             }
 
+            # Parse submit/start time (MM/DD/YYYY HH:MM:SS)
+            if len(parts) >= 7:
+                timestamp = _parse_qstat_datetime(parts[5], parts[6])
+                if timestamp is not None:
+                    if "r" in parts[4]:
+                        jobs[job_id]["start_time"] = timestamp
+                    else:
+                        jobs[job_id]["submit_time"] = timestamp
+
             # Parse queue if present
             if len(parts) >= 8:
                 jobs[job_id]["queue"] = parts[7]
@@ -163,6 +180,28 @@ def parse_qstat_plain(output: str) -> dict[str, Any]:
                     pass
 
     return jobs
+
+
+def _parse_qstat_datetime(date_part: str, time_part: str) -> int | None:
+    """Parse qstat date/time into epoch seconds."""
+    try:
+        dt = datetime.strptime(f"{date_part} {time_part}", "%m/%d/%Y %H:%M:%S")
+    except ValueError:
+        return None
+    return int(dt.timestamp())
+
+
+def _parse_sge_timestamp(value: str) -> int | None:
+    """Parse SGE timestamps that may be epoch seconds or ISO 8601."""
+    if value.isdigit():
+        try:
+            return int(value)
+        except ValueError:
+            return None
+    try:
+        return int(datetime.strptime(value, "%Y-%m-%dT%H:%M:%S").timestamp())
+    except ValueError:
+        return None
 
 
 def parse_qacct_output(output: str) -> dict[str, Any]:
@@ -211,16 +250,19 @@ def state_to_status(state: str) -> JobStatus:
     """
     state = state.lower()
 
-    if state in ("r", "t", "rr", "rt"):
-        return JobStatus.RUNNING
-    elif state in ("qw", "hqw"):
-        return JobStatus.PENDING
-    elif state in ("eqw",):
-        return JobStatus.FAILED
-    elif state in ("dr", "dt"):
+    # Deleting or error states take precedence over other flags.
+    if "d" in state:
         return JobStatus.CANCELLED
-    elif state in ("s", "ts", "ss", "ts"):
-        return JobStatus.PENDING  # Suspended, treat as pending
+    if "e" in state:
+        return JobStatus.FAILED
+
+    # Running or transferring states.
+    if "r" in state or "t" in state:
+        return JobStatus.RUNNING
+
+    # Queued, held, or suspended states.
+    if "q" in state or "h" in state or "s" in state:
+        return JobStatus.PENDING
 
     return JobStatus.UNKNOWN
 
