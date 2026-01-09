@@ -1,165 +1,232 @@
-"""SGE-specific argument descriptors."""
+"""SGE-specific argument renderers.
+
+Each class knows how to render a single job attribute to SGE syntax,
+both as a script directive (#$ ...) and as command-line arguments.
+"""
 
 from hpc_runner.core.descriptors import SchedulerArg
 
 
 class SGEArg(SchedulerArg):
-    """Base SGE argument.
+    """Base class for SGE arguments.
 
-    SGE uses #$ -flag value format for directives.
+    SGE uses:
+    - Directives: #$ -flag value
+    - CLI args: -flag value
     """
 
     def to_args(self, value) -> list[str]:
         if value is None:
             return []
-        return [f"-{self.flag}", str(self.converter(value))]
+        return [f"-{self.flag}", str(value)]
 
     def to_directive(self, value) -> str | None:
         if value is None:
             return None
-        return f"#$ -{self.flag} {self.converter(value)}"
+        return f"#$ -{self.flag} {value}"
 
 
-class SGECpuArg(SGEArg):
-    """CPU/slots argument using parallel environment.
-
-    Note: The PE name is configurable via config.
-    """
-
-    def __init__(self, pe_name: str = "smp"):
-        super().__init__("pe", converter=lambda v: f"{pe_name} {v}", doc="Parallel environment")
-        self.pe_name = pe_name
-
-    def to_args(self, value, pe_name: str | None = None) -> list[str]:
-        if value is None:
-            return []
-        pe = pe_name or self.pe_name
-        return ["-pe", f"{pe} {value}"]
-
-    def to_directive(self, value, pe_name: str | None = None) -> str | None:
-        if value is None:
-            return None
-        pe = pe_name or self.pe_name
-        return f"#$ -pe {pe} {value}"
-
-
-class SGEMemArg(SGEArg):
-    """Memory argument.
-
-    Uses -l resource=value format. Resource name is configurable.
-    """
-
-    def __init__(self, resource_name: str = "mem_free"):
-        super().__init__("l", doc="Memory requirement")
-        self.resource_name = resource_name
-
-    def to_args(self, value, resource_name: str | None = None) -> list[str]:
-        if value is None:
-            return []
-        res = resource_name or self.resource_name
-        return ["-l", f"{res}={value}"]
-
-    def to_directive(self, value, resource_name: str | None = None) -> str | None:
-        if value is None:
-            return None
-        res = resource_name or self.resource_name
-        return f"#$ -l {res}={value}"
-
-
-class SGETimeArg(SGEArg):
-    """Time limit argument.
-
-    Uses -l h_rt=HH:MM:SS format. Resource name is configurable.
-    """
-
-    def __init__(self, resource_name: str = "h_rt"):
-        super().__init__("l", doc="Hard runtime limit")
-        self.resource_name = resource_name
-
-    def to_args(self, value, resource_name: str | None = None) -> list[str]:
-        if value is None:
-            return []
-        res = resource_name or self.resource_name
-        return ["-l", f"{res}={value}"]
-
-    def to_directive(self, value, resource_name: str | None = None) -> str | None:
-        if value is None:
-            return None
-        res = resource_name or self.resource_name
-        return f"#$ -l {res}={value}"
-
-
-class SGEQueueArg(SGEArg):
-    """Queue argument."""
-
-    def __init__(self):
-        super().__init__("q", doc="Queue name")
+# =============================================================================
+# Simple Flag Arguments
+# =============================================================================
 
 
 class SGEJobNameArg(SGEArg):
-    """Job name argument."""
+    """Job name: -N name"""
 
     def __init__(self):
         super().__init__("N", doc="Job name")
 
 
+class SGEQueueArg(SGEArg):
+    """Queue selection: -q queue_name"""
+
+    def __init__(self):
+        super().__init__("q", doc="Queue/partition name")
+
+
 class SGEOutputArg(SGEArg):
-    """Stdout path argument."""
+    """Stdout path: -o path"""
 
     def __init__(self):
         super().__init__("o", doc="Stdout file path")
 
 
 class SGEErrorArg(SGEArg):
-    """Stderr path argument."""
+    """Stderr path: -e path"""
 
     def __init__(self):
         super().__init__("e", doc="Stderr file path")
 
 
-class SGEArrayArg(SGEArg):
-    """Array job argument."""
+class SGEPriorityArg(SGEArg):
+    """Job priority: -p priority"""
 
     def __init__(self):
-        super().__init__("t", doc="Array job range (e.g., 1-100, 1-100:10)")
+        super().__init__("p", doc="Job priority (-1023 to 1024)")
 
 
-class SGEJoinOutputArg(SGEArg):
-    """Join stdout and stderr."""
+class SGEShellArg(SGEArg):
+    """Shell selection: -S /path/to/shell"""
+
+    def __init__(self):
+        super().__init__("S", doc="Shell path")
+
+
+# =============================================================================
+# Boolean Flag Arguments (no value, just presence)
+# =============================================================================
+
+
+class SGECwdArg(SchedulerArg[bool]):
+    """Use current working directory: -cwd"""
+
+    def __init__(self):
+        super().__init__("cwd", doc="Execute in current working directory")
+
+    def to_args(self, value: bool | None) -> list[str]:
+        return ["-cwd"] if value else []
+
+    def to_directive(self, value: bool | None) -> str | None:
+        return "#$ -cwd" if value else None
+
+
+class SGEInheritEnvArg(SchedulerArg[bool]):
+    """Inherit environment: -V"""
+
+    def __init__(self):
+        super().__init__("V", doc="Inherit environment variables")
+
+    def to_args(self, value: bool | None) -> list[str]:
+        return ["-V"] if value else []
+
+    def to_directive(self, value: bool | None) -> str | None:
+        return "#$ -V" if value else None
+
+
+class SGEMergeOutputArg(SchedulerArg[bool]):
+    """Merge stdout and stderr: -j y"""
 
     def __init__(self):
         super().__init__("j", doc="Join stdout and stderr")
 
-    def to_args(self, value) -> list[str]:
-        if value:
-            return ["-j", "y"]
-        return []
+    def to_args(self, value: bool | None) -> list[str]:
+        return ["-j", "y"] if value else []
 
-    def to_directive(self, value) -> str | None:
-        if value:
-            return "#$ -j y"
-        return None
+    def to_directive(self, value: bool | None) -> str | None:
+        return "#$ -j y" if value else None
 
 
-class SGECwdArg(SGEArg):
-    """Use current working directory."""
+# =============================================================================
+# Resource Arguments (configurable resource names)
+# =============================================================================
+
+
+class SGECpuArg(SchedulerArg[int]):
+    """Parallel environment slots: -pe <pe_name> <slots>
+
+    The PE name is configurable per-cluster (e.g., 'smp', 'mpi', 'orte').
+    """
+
+    def __init__(self, pe_name: str = "smp"):
+        super().__init__("pe", doc=f"Parallel environment ({pe_name})")
+        self.pe_name = pe_name
+
+    def to_args(self, value: int | None) -> list[str]:
+        if value is None:
+            return []
+        return ["-pe", self.pe_name, str(value)]
+
+    def to_directive(self, value: int | None) -> str | None:
+        if value is None:
+            return None
+        return f"#$ -pe {self.pe_name} {value}"
+
+
+class SGEMemArg(SchedulerArg[str]):
+    """Memory request: -l <resource>=<value>
+
+    The resource name is configurable (e.g., 'mem_free', 'h_vmem', 'mem').
+    """
+
+    def __init__(self, resource_name: str = "mem_free"):
+        super().__init__("l", doc=f"Memory ({resource_name})")
+        self.resource_name = resource_name
+
+    def to_args(self, value: str | None) -> list[str]:
+        if value is None:
+            return []
+        return ["-l", f"{self.resource_name}={value}"]
+
+    def to_directive(self, value: str | None) -> str | None:
+        if value is None:
+            return None
+        return f"#$ -l {self.resource_name}={value}"
+
+
+class SGETimeArg(SchedulerArg[str]):
+    """Time limit: -l <resource>=<HH:MM:SS>
+
+    The resource name is configurable (e.g., 'h_rt', 's_rt').
+    """
+
+    def __init__(self, resource_name: str = "h_rt"):
+        super().__init__("l", doc=f"Time limit ({resource_name})")
+        self.resource_name = resource_name
+
+    def to_args(self, value: str | None) -> list[str]:
+        if value is None:
+            return []
+        return ["-l", f"{self.resource_name}={value}"]
+
+    def to_directive(self, value: str | None) -> str | None:
+        if value is None:
+            return None
+        return f"#$ -l {self.resource_name}={value}"
+
+
+# =============================================================================
+# Array Job Arguments
+# =============================================================================
+
+
+class SGEArrayArg(SchedulerArg[str]):
+    """Array job range: -t range
+
+    Range formats: 1-100, 1-100:10, 1,2,3,4
+    """
 
     def __init__(self):
-        super().__init__("cwd", doc="Use current working directory")
+        super().__init__("t", doc="Array job range")
 
-    def to_args(self, value) -> list[str]:
-        if value:
-            return ["-cwd"]
-        return []
+    def to_args(self, value: str | None) -> list[str]:
+        if value is None:
+            return []
+        return ["-t", value]
 
-    def to_directive(self, value) -> str | None:
-        if value:
-            return "#$ -cwd"
-        return None
+    def to_directive(self, value: str | None) -> str | None:
+        if value is None:
+            return None
+        return f"#$ -t {value}"
 
 
-class SGEShellArg(SGEArg):
-    """Shell to use for the job."""
+# =============================================================================
+# Dependency Arguments
+# =============================================================================
+
+
+class SGEHoldArg(SchedulerArg[str]):
+    """Job dependency: -hold_jid job_id[,job_id,...]"""
 
     def __init__(self):
-        super().__init__("S", doc="Shell path")
+        super().__init__("hold_jid", doc="Hold until jobs complete")
+
+    def to_args(self, value: str | None) -> list[str]:
+        if value is None:
+            return []
+        return ["-hold_jid", value]
+
+    def to_directive(self, value: str | None) -> str | None:
+        if value is None:
+            return None
+        return f"#$ -hold_jid {value}"

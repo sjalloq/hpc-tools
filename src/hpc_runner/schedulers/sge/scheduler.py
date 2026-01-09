@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 import subprocess
 import tempfile
 from datetime import datetime
@@ -10,19 +9,23 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from hpc_runner.core.config import get_config
-from hpc_runner.core.exceptions import AccountingNotAvailable, JobNotFoundError
 from hpc_runner.core.job_info import JobInfo
 from hpc_runner.core.result import ArrayJobResult, JobResult, JobStatus
 from hpc_runner.schedulers.base import BaseScheduler
 from hpc_runner.schedulers.sge.args import (
+    SGEArrayArg,
     SGECpuArg,
     SGECwdArg,
     SGEErrorArg,
+    SGEHoldArg,
+    SGEInheritEnvArg,
     SGEJobNameArg,
-    SGEJoinOutputArg,
     SGEMemArg,
+    SGEMergeOutputArg,
     SGEOutputArg,
+    SGEPriorityArg,
     SGEQueueArg,
+    SGEShellArg,
     SGETimeArg,
 )
 from hpc_runner.schedulers.sge.parser import (
@@ -44,26 +47,136 @@ class SGEScheduler(BaseScheduler):
 
     name = "sge"
 
-    # Descriptor-based argument definitions
-    cpu_arg = SGECpuArg()
-    mem_arg = SGEMemArg()
-    time_arg = SGETimeArg()
-    queue_arg = SGEQueueArg()
-    job_name_arg = SGEJobNameArg()
-    stdout_arg = SGEOutputArg()
-    stderr_arg = SGEErrorArg()
-    join_output_arg = SGEJoinOutputArg()
-    cwd_arg = SGECwdArg()
-
     def __init__(self) -> None:
-        # Load scheduler-specific config
+        """Initialize SGE scheduler with config-driven settings."""
         config = get_config()
         sge_config = config.get_scheduler_config("sge")
 
+        # Extract config values (also stored as attributes for testing/introspection)
         self.pe_name = sge_config.get("parallel_environment", "smp")
         self.mem_resource = sge_config.get("memory_resource", "mem_free")
         self.time_resource = sge_config.get("time_resource", "h_rt")
-        self.merge_output_default = sge_config.get("merge_output", True)
+
+        # Build the argument renderer registry
+        # Maps Job attribute names -> SGE argument renderer instances
+        # Note: 'nodes' and 'tasks' are NOT mapped - they're Slurm/MPI concepts.
+        # If a job has these set, they'll be silently ignored by SGE.
+        self.ARG_RENDERERS = {
+            # Basic attributes
+            "shell": SGEShellArg(),
+            "use_cwd": SGECwdArg(),
+            "inherit_env": SGEInheritEnvArg(),
+            "name": SGEJobNameArg(),
+            "queue": SGEQueueArg(),
+            "priority": SGEPriorityArg(),
+            "stdout": SGEOutputArg(),
+            "stderr": SGEErrorArg(),
+            # Resource attributes (config-driven)
+            "cpu": SGECpuArg(pe_name=self.pe_name),
+            "mem": SGEMemArg(resource_name=self.mem_resource),
+            "time": SGETimeArg(resource_name=self.time_resource),
+        }
+
+        # Keep references for special-case rendering
+        self._array_arg = SGEArrayArg()
+        self._hold_arg = SGEHoldArg()
+        self._merge_output_arg = SGEMergeOutputArg()
+
+    # =========================================================================
+    # Script Generation
+    # =========================================================================
+
+    def generate_script(self, job: "Job", array_range: str | None = None) -> str:
+        """Generate qsub script using template."""
+        directives = self._build_directives(job, array_range)
+        return render_template(
+            "sge/templates/job.sh.j2",
+            job=job,
+            scheduler=self,
+            directives=directives,
+        )
+
+    def _build_directives(self, job: "Job", array_range: str | None = None) -> list[str]:
+        """Build complete list of #$ directives for the job.
+
+        Uses the rendering protocol from BaseScheduler, then adds
+        special cases that aren't simple attribute mappings.
+        """
+        directives: list[str] = []
+
+        # 1. Render standard attributes via protocol
+        directives.extend(self.render_directives(job))
+
+        # 2. Handle output merging (derived from stderr being None)
+        if job.merge_output:
+            if d := self._merge_output_arg.to_directive(True):
+                directives.append(d)
+
+        # 3. Array job range
+        if array_range:
+            if d := self._array_arg.to_directive(array_range):
+                directives.append(d)
+
+        # 4. Dependencies
+        dep_str = self._build_dependency_string(job)
+        if dep_str:
+            if d := self._hold_arg.to_directive(dep_str):
+                directives.append(d)
+
+        # 5. Custom resources (ResourceSet)
+        for resource in job.resources:
+            directives.append(f"#$ -l {resource.name}={resource.value}")
+
+        # 6. Raw passthrough arguments
+        for arg in job.raw_args + job.sge_args:
+            if arg.startswith("-"):
+                directives.append(f"#$ {arg}")
+            else:
+                directives.append(f"#$ -{arg}")
+
+        return directives
+
+    def _build_dependency_string(self, job: "Job") -> str | None:
+        """Build SGE dependency string from job dependencies."""
+        # String-based dependency from CLI
+        if job.dependency:
+            if ":" in job.dependency:
+                return job.dependency.split(":", 1)[1]
+            return job.dependency
+
+        # Programmatic dependencies from Job.after()
+        if job.dependencies:
+            return ",".join(dep.job_id for dep in job.dependencies)
+
+        return None
+
+    # =========================================================================
+    # Command Building
+    # =========================================================================
+
+    def build_submit_command(self, job: "Job") -> list[str]:
+        """Build qsub command line."""
+        cmd = ["qsub"]
+        cmd.extend(self.render_args(job))
+        cmd.extend(job.raw_args)
+        cmd.extend(job.sge_args)
+        return cmd
+
+    def build_interactive_command(self, job: "Job") -> list[str]:
+        """Build qrsh command for interactive jobs."""
+        cmd = ["qrsh"]
+        cmd.extend(self.render_args(job))
+        cmd.extend(job.raw_args)
+        cmd.extend(job.sge_args)
+
+        # Add the command itself
+        cmd.append(job.command)
+
+        return cmd
+
+    # =========================================================================
+    # Job Submission
+    # =========================================================================
 
     def submit(self, job: "Job", interactive: bool = False) -> JobResult:
         """Submit a job to SGE."""
@@ -82,9 +195,8 @@ class SGEScheduler(BaseScheduler):
             script_path = f.name
 
         try:
-            cmd = ["qsub", script_path]
             result = subprocess.run(
-                cmd,
+                ["qsub", script_path],
                 capture_output=True,
                 text=True,
                 errors="replace",
@@ -93,7 +205,7 @@ class SGEScheduler(BaseScheduler):
             job_id = parse_qsub_output(result.stdout)
 
             if job_id is None:
-                raise RuntimeError(f"Failed to parse job ID from qsub output: {result.stdout}")
+                raise RuntimeError(f"Failed to parse job ID: {result.stdout}")
 
             return JobResult(job_id=job_id, scheduler=self, job=job)
         finally:
@@ -102,14 +214,12 @@ class SGEScheduler(BaseScheduler):
     def _submit_interactive(self, job: "Job") -> JobResult:
         """Submit via qrsh for interactive execution."""
         cmd = self.build_interactive_command(job)
-        result = subprocess.run(cmd, check=False)
-        # For interactive jobs, we don't have a real job ID
+        subprocess.run(cmd, check=False)
         return JobResult(job_id="interactive", scheduler=self, job=job)
 
     def submit_array(self, array: "JobArray") -> ArrayJobResult:
         """Submit array job."""
-        job = array.job
-        script = self.generate_script(job, array_range=array.range_str)
+        script = self.generate_script(array.job, array_range=array.range_str)
 
         with tempfile.NamedTemporaryFile(
             mode="w", suffix=".sh", delete=False, prefix="hpc_"
@@ -118,16 +228,24 @@ class SGEScheduler(BaseScheduler):
             script_path = f.name
 
         try:
-            cmd = ["qsub", script_path]
-            result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+            result = subprocess.run(
+                ["qsub", script_path],
+                capture_output=True,
+                text=True,
+                check=True,
+            )
             job_id = parse_qsub_output(result.stdout)
 
             if job_id is None:
-                raise RuntimeError(f"Failed to parse job ID from qsub output: {result.stdout}")
+                raise RuntimeError(f"Failed to parse job ID: {result.stdout}")
 
             return ArrayJobResult(base_job_id=job_id, scheduler=self, array=array)
         finally:
             Path(script_path).unlink(missing_ok=True)
+
+    # =========================================================================
+    # Job Management
+    # =========================================================================
 
     def cancel(self, job_id: str) -> bool:
         """Cancel a job via qdel."""
@@ -138,7 +256,7 @@ class SGEScheduler(BaseScheduler):
             return False
 
     def get_status(self, job_id: str) -> JobStatus:
-        """Get job status via qstat."""
+        """Get job status via qstat/qacct."""
         # Try qstat first (running/pending jobs)
         try:
             result = subprocess.run(
@@ -147,30 +265,17 @@ class SGEScheduler(BaseScheduler):
                 text=True,
             )
             if result.returncode == 0:
-                # Job exists, check state from regular qstat
-                result2 = subprocess.run(
-                    ["qstat"],
-                    capture_output=True,
-                    text=True,
-                )
+                result2 = subprocess.run(["qstat"], capture_output=True, text=True)
                 if result2.returncode == 0:
                     jobs = parse_qstat_plain(result2.stdout)
-                    # Handle array job task IDs (e.g., 12345.1)
                     base_id = job_id.split(".")[0]
                     if base_id in jobs:
-                        state = jobs[base_id].get("state", "")
-                        return state_to_status(state)
-                    # Check if full ID matches
-                    if job_id in jobs:
-                        state = jobs[job_id].get("state", "")
-                        return state_to_status(state)
-
-                # Job exists but not in qstat output - likely running
+                        return state_to_status(jobs[base_id].get("state", ""))
                 return JobStatus.RUNNING
         except subprocess.CalledProcessError:
             pass
 
-        # Job not in qstat, check qacct for completed jobs
+        # Check qacct for completed jobs
         try:
             result = subprocess.run(
                 ["qacct", "-j", job_id],
@@ -179,11 +284,9 @@ class SGEScheduler(BaseScheduler):
             )
             if result.returncode == 0:
                 info = parse_qacct_output(result.stdout)
-                exit_status = info.get("exit_status", "")
-                if exit_status == "0":
+                if info.get("exit_status") == "0":
                     return JobStatus.COMPLETED
-                else:
-                    return JobStatus.FAILED
+                return JobStatus.FAILED
         except subprocess.CalledProcessError:
             pass
 
@@ -206,146 +309,9 @@ class SGEScheduler(BaseScheduler):
             pass
         return None
 
-    def get_output_path(self, job_id: str, stream: str) -> Path | None:
-        """Determine output path.
-
-        SGE uses patterns that need to be resolved.
-        """
-        # This is tricky with SGE as paths can use $JOB_ID, etc.
-        # For now, return None and let user check
-        return None
-
-    def generate_script(self, job: "Job", array_range: str | None = None) -> str:
-        """Generate qsub script using template."""
-        directives = self._build_directives(job, array_range)
-        return render_template(
-            "sge/templates/job.sh.j2",
-            job=job,
-            scheduler=self,
-            directives=directives,
-        )
-
-    def _build_directives(self, job: "Job", array_range: str | None = None) -> list[str]:
-        """Build #$ directives."""
-        directives: list[str] = []
-
-        # Shell
-        directives.append("#$ -S /bin/bash")
-
-        # Use current working directory
-        if job.workdir is None:
-            directives.append("#$ -cwd")
-
-        # Job name
-        if job.name:
-            directives.append(f"#$ -N {job.name}")
-
-        # CPU/slots via parallel environment
-        if job.cpu:
-            directives.append(f"#$ -pe {self.pe_name} {job.cpu}")
-
-        # Memory
-        if job.mem:
-            directives.append(f"#$ -l {self.mem_resource}={job.mem}")
-
-        # Time
-        if job.time:
-            directives.append(f"#$ -l {self.time_resource}={job.time}")
-
-        # Queue
-        if job.queue:
-            directives.append(f"#$ -q {job.queue}")
-
-        # Output handling - merge by default
-        if job.merge_output:
-            directives.append("#$ -j y")
-            if job.stdout:
-                directives.append(f"#$ -o {job.stdout}")
-        else:
-            if job.stdout:
-                directives.append(f"#$ -o {job.stdout}")
-            if job.stderr:
-                directives.append(f"#$ -e {job.stderr}")
-
-        # Array job
-        if array_range:
-            directives.append(f"#$ -t {array_range}")
-
-        # Resources (GRES-style)
-        for resource in job.resources:
-            directives.append(f"#$ -l {resource.name}={resource.value}")
-
-        # Dependencies (string-based from CLI)
-        if job.dependency:
-            # Parse dependency spec (e.g., "afterok:12345" or just "12345")
-            if ":" in job.dependency:
-                # Format: "type:job_id,job_id,..."
-                dep_spec = job.dependency.split(":", 1)[1]
-            else:
-                dep_spec = job.dependency
-            directives.append(f"#$ -hold_jid {dep_spec}")
-        # Dependencies (programmatic from Job.after())
-        elif job.dependencies:
-            dep_ids = ",".join(dep.job_id for dep in job.dependencies)
-            # SGE uses -hold_jid for dependencies
-            directives.append(f"#$ -hold_jid {dep_ids}")
-
-        # Raw args
-        for arg in job.raw_args + job.sge_args:
-            if arg.startswith("-"):
-                directives.append(f"#$ {arg}")
-            else:
-                directives.append(f"#$ -{arg}")
-
-        return directives
-
-    def build_submit_command(self, job: "Job") -> list[str]:
-        """Build qsub command line."""
-        cmd = ["qsub"]
-
-        if job.name:
-            cmd.extend(["-N", job.name])
-        if job.cpu:
-            cmd.extend(["-pe", self.pe_name, str(job.cpu)])
-        if job.mem:
-            cmd.extend(["-l", f"{self.mem_resource}={job.mem}"])
-        if job.time:
-            cmd.extend(["-l", f"{self.time_resource}={job.time}"])
-        if job.queue:
-            cmd.extend(["-q", job.queue])
-
-        cmd.extend(job.raw_args)
-        cmd.extend(job.sge_args)
-
-        return cmd
-
-    def build_interactive_command(self, job: "Job") -> list[str]:
-        """Build qrsh command for interactive jobs."""
-        cmd = ["qrsh"]
-
-        if job.cpu:
-            cmd.extend(["-pe", self.pe_name, str(job.cpu)])
-        if job.mem:
-            cmd.extend(["-l", f"{self.mem_resource}={job.mem}"])
-        if job.time:
-            cmd.extend(["-l", f"{self.time_resource}={job.time}"])
-        if job.queue:
-            cmd.extend(["-q", job.queue])
-
-        cmd.extend(job.raw_args)
-        cmd.extend(job.sge_args)
-
-        # Add the command
-        if isinstance(job.command, str):
-            cmd.append(job.command)
-        else:
-            cmd.extend(job.command)
-
-        return cmd
-
-    # -------------------------------------------------------------------------
-    # TUI Monitor API (stubs - to be implemented in Stage 5 and Stage 14)
-    # -------------------------------------------------------------------------
+    # =========================================================================
+    # TUI Monitor API
+    # =========================================================================
 
     def list_active_jobs(
         self,
@@ -423,7 +389,6 @@ class SGEScheduler(BaseScheduler):
                 job_info.start_time = datetime.fromtimestamp(job_data["start_time"])
                 # Calculate runtime for running jobs
                 if job_info.status == JobStatus.RUNNING:
-                    from datetime import timedelta
                     job_info.runtime = datetime.now() - job_info.start_time
 
             # Array task ID
@@ -448,16 +413,12 @@ class SGEScheduler(BaseScheduler):
     ) -> list[JobInfo]:
         """List completed SGE jobs from qacct.
 
-        TODO: Implement in Stage 14 using qacct.
+        TODO: Implement using qacct.
         """
         raise NotImplementedError("SGE list_completed_jobs() not yet implemented")
 
     def has_accounting(self) -> bool:
-        """Check if SGE accounting is available.
-
-        TODO: Implement in Stage 14 by testing qacct availability.
-        """
-        # Stub: assume accounting is available (will be properly checked later)
+        """Check if SGE accounting is available."""
         return True
 
     def get_job_details(self, job_id: str) -> tuple[JobInfo, dict[str, object]]:
@@ -494,8 +455,18 @@ class SGEScheduler(BaseScheduler):
 
         # Separate extra details from JobInfo fields
         extra_details: dict[str, object] = {}
-        for key in ("resources", "pe_name", "pe_range", "cwd", "script_file",
-                    "dependencies", "project", "department", "job_args", "command"):
+        for key in (
+            "resources",
+            "pe_name",
+            "pe_range",
+            "cwd",
+            "script_file",
+            "dependencies",
+            "project",
+            "department",
+            "job_args",
+            "command",
+        ):
             if key in job_data:
                 extra_details[key] = job_data[key]
 
@@ -722,6 +693,8 @@ class SGEScheduler(BaseScheduler):
 
     def _strip_xml_namespaces(self, root: "ET.Element") -> None:
         """Strip namespaces so ElementTree can match tag names directly."""
+        import xml.etree.ElementTree as ET
+
         for elem in root.iter():
             if isinstance(elem.tag, str) and "}" in elem.tag:
                 elem.tag = elem.tag.split("}", 1)[1]

@@ -226,7 +226,7 @@ class LocalScheduler(BaseScheduler):
             return LocalScheduler._output_paths[job_id].get(stream)
         return None
 
-    def generate_script(self, job: "Job") -> str:
+    def generate_script(self, job: "Job", array_range: str | None = None) -> str:
         """Generate local execution script."""
         return render_template(
             "local/templates/job.sh.j2",
@@ -236,6 +236,10 @@ class LocalScheduler(BaseScheduler):
 
     def build_submit_command(self, job: "Job") -> list[str]:
         """Build command - for local, just bash."""
+        return ["bash", "-c", job.command if isinstance(job.command, str) else " ".join(job.command)]
+
+    def build_interactive_command(self, job: "Job") -> list[str]:
+        """Build interactive command - for local, just bash."""
         return ["bash", "-c", job.command if isinstance(job.command, str) else " ".join(job.command)]
 
     # -------------------------------------------------------------------------
@@ -307,7 +311,7 @@ class LocalScheduler(BaseScheduler):
         """
         return False
 
-    def get_job_details(self, job_id: str) -> JobInfo:
+    def get_job_details(self, job_id: str) -> tuple[JobInfo, dict[str, object]]:
         """Get details for a local job."""
         current_user = os.environ.get("USER", "unknown")
 
@@ -318,7 +322,7 @@ class LocalScheduler(BaseScheduler):
             status = JobStatus.RUNNING if poll is None else (
                 JobStatus.COMPLETED if poll == 0 else JobStatus.FAILED
             )
-            return JobInfo(
+            job_info = JobInfo(
                 job_id=job_id,
                 name=job_id,
                 user=current_user,
@@ -328,11 +332,12 @@ class LocalScheduler(BaseScheduler):
                 stdout_path=LocalScheduler._output_paths.get(job_id, {}).get("stdout"),
                 stderr_path=LocalScheduler._output_paths.get(job_id, {}).get("stderr"),
             )
+            return job_info, {}
 
         # Check completed jobs with cached exit codes
         if job_id in LocalScheduler._exit_codes:
             exit_code = LocalScheduler._exit_codes[job_id]
-            return JobInfo(
+            job_info = JobInfo(
                 job_id=job_id,
                 name=job_id,
                 user=current_user,
@@ -342,5 +347,6 @@ class LocalScheduler(BaseScheduler):
                 stdout_path=LocalScheduler._output_paths.get(job_id, {}).get("stdout"),
                 stderr_path=LocalScheduler._output_paths.get(job_id, {}).get("stderr"),
             )
+            return job_info, {}
 
         raise JobNotFoundError(f"Job {job_id} not found")
