@@ -42,6 +42,7 @@ console = Console()
 @click.option("--local", is_flag=True, help="Run locally (no scheduler)")
 @click.option("--dry-run", "dry_run", is_flag=True, help="Show what would be submitted")
 @click.option("--wait", is_flag=True, help="Wait for job completion")
+@click.option("--keep-script", "keep_script", is_flag=True, help="Keep job script for debugging")
 @pass_context
 def run(
     ctx: Context,
@@ -65,6 +66,7 @@ def run(
     local: bool,
     dry_run: bool,
     wait: bool,
+    keep_script: bool,
 ) -> None:
     """Submit a job to the scheduler.
 
@@ -150,7 +152,7 @@ def run(
         return
 
     # Submit the job
-    result = scheduler.submit(job, interactive=interactive)
+    result = scheduler.submit(job, interactive=interactive, keep_script=keep_script)
 
     if interactive:
         if result.returncode == 0:

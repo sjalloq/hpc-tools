@@ -94,8 +94,16 @@ class BaseScheduler(ABC):
     # =========================================================================
 
     @abstractmethod
-    def submit(self, job: "Job", interactive: bool = False) -> "JobResult":
-        """Submit a job to the scheduler."""
+    def submit(
+        self, job: "Job", interactive: bool = False, keep_script: bool = False
+    ) -> "JobResult":
+        """Submit a job to the scheduler.
+
+        Args:
+            job: Job to submit.
+            interactive: If True, run interactively.
+            keep_script: If True, don't delete job script after submission.
+        """
 
     @abstractmethod
     def submit_array(self, array: "JobArray") -> "ArrayJobResult":

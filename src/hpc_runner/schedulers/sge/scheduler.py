@@ -2,13 +2,35 @@
 
 from __future__ import annotations
 
+import os
 import subprocess
 import tempfile
+import uuid
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 from hpc_runner.core.config import get_config
+
+
+def get_script_dir() -> Path:
+    """Get directory for temporary job scripts.
+
+    Uses HPC_SCRIPT_DIR environment variable if set, otherwise
+    defaults to ~/.cache/hpc-runner/scripts/.
+
+    Returns:
+        Path to script directory (created if needed).
+    """
+    if env_dir := os.environ.get("HPC_SCRIPT_DIR"):
+        script_dir = Path(env_dir)
+    else:
+        script_dir = Path.home() / ".cache" / "hpc-runner" / "scripts"
+
+    script_dir.mkdir(parents=True, exist_ok=True)
+    return script_dir
+
+
 from hpc_runner.core.job_info import JobInfo
 from hpc_runner.core.result import ArrayJobResult, JobResult, JobStatus
 from hpc_runner.schedulers.base import BaseScheduler
@@ -95,14 +117,29 @@ class SGEScheduler(BaseScheduler):
     # Script Generation
     # =========================================================================
 
-    def generate_script(self, job: "Job", array_range: str | None = None) -> str:
-        """Generate qsub script using template."""
+    def generate_script(
+        self,
+        job: "Job",
+        array_range: str | None = None,
+        keep_script: bool = False,
+        script_path: str | None = None,
+    ) -> str:
+        """Generate qsub script using template.
+
+        Args:
+            job: Job to generate script for.
+            array_range: Array job range string (e.g., "1-100").
+            keep_script: If True, script won't self-delete after execution.
+            script_path: Path where script will be written (for self-deletion).
+        """
         directives = self._build_directives(job, array_range)
         return render_template(
             "sge/templates/batch.sh.j2",
             job=job,
             scheduler=self,
             directives=directives,
+            script_path=script_path,
+            keep_script=keep_script,
         )
 
     def _build_directives(self, job: "Job", array_range: str | None = None) -> list[str]:
@@ -205,25 +242,43 @@ class SGEScheduler(BaseScheduler):
     # Job Submission
     # =========================================================================
 
-    def submit(self, job: "Job", interactive: bool = False) -> JobResult:
-        """Submit a job to SGE."""
+    def submit(
+        self, job: "Job", interactive: bool = False, keep_script: bool = False
+    ) -> JobResult:
+        """Submit a job to SGE.
+
+        Args:
+            job: Job to submit.
+            interactive: If True, run interactively via qrsh.
+            keep_script: If True, don't delete the job script after submission.
+                         Useful for debugging.
+        """
         if interactive:
-            return self._submit_interactive(job)
-        return self._submit_batch(job)
+            return self._submit_interactive(job, keep_script=keep_script)
+        return self._submit_batch(job, keep_script=keep_script)
 
-    def _submit_batch(self, job: "Job") -> JobResult:
+    def _submit_batch(self, job: "Job", keep_script: bool = False) -> JobResult:
         """Submit via qsub."""
-        script = self.generate_script(job)
+        # Determine script path first (needed for self-deletion in template)
+        script_dir = get_script_dir()
+        script_name = f"hpc_batch_{uuid.uuid4().hex[:8]}.sh"
+        script_path = script_dir / script_name
 
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".sh", delete=False, prefix="hpc_"
-        ) as f:
-            f.write(script)
-            script_path = f.name
+        # Generate script with cleanup instruction
+        script = self.generate_script(
+            job, keep_script=keep_script, script_path=str(script_path)
+        )
+
+        script_path.write_text(script)
+        script_path.chmod(0o755)
+
+        if keep_script:
+            import sys
+            print(f"Script saved: {script_path}", file=sys.stderr)
 
         try:
             result = subprocess.run(
-                ["qsub", script_path],
+                ["qsub", str(script_path)],
                 capture_output=True,
                 text=True,
                 errors="replace",
@@ -236,33 +291,49 @@ class SGEScheduler(BaseScheduler):
 
             return JobResult(job_id=job_id, scheduler=self, job=job)
         finally:
-            Path(script_path).unlink(missing_ok=True)
+            # Clean up locally after qsub (script is copied to spool)
+            # The script inside the job will also self-delete unless keep_script
+            if not keep_script:
+                script_path.unlink(missing_ok=True)
 
-    def _submit_interactive(self, job: "Job") -> JobResult:
+    def _submit_interactive(self, job: "Job", keep_script: bool = False) -> JobResult:
         """Submit via qrsh for interactive execution.
 
         Creates a wrapper script with full environment setup (modules, venv, etc.)
-        and executes it via qrsh. The script self-deletes after execution.
+        and executes it via qrsh. The script self-deletes after execution unless
+        keep_script is True.
+
+        Note: Script is written to ~/.cache/hpc-runner/scripts/ (shared filesystem)
+        rather than /tmp (which is node-local).
         """
-        # Generate wrapper script
-        script = self._generate_interactive_script(job)
+        # Generate unique script path in shared script directory
+        script_dir = get_script_dir()
+        script_name = f"hpc_interactive_{uuid.uuid4().hex[:8]}.sh"
+        script_path = script_dir / script_name
 
-        # Write to temp file
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".sh", delete=False, prefix="hpc_interactive_"
-        ) as f:
-            f.write(script)
-            script_path = f.name
+        # Generate wrapper script with the actual path (for self-deletion)
+        script = self._generate_interactive_script(
+            job, str(script_path), keep_script=keep_script
+        )
 
-        # Make executable
-        Path(script_path).chmod(0o755)
+        # Write script to shared filesystem
+        script_path.write_text(script)
+        script_path.chmod(0o755)
+
+        if keep_script:
+            # Print script path for debugging
+            import sys
+            print(f"Script saved: {script_path}", file=sys.stderr)
 
         # Build qrsh command with script path
-        cmd = self._build_qrsh_command(job, script_path)
+        cmd = self._build_qrsh_command(job, str(script_path))
 
         # Run and capture exit code
-        # Note: script self-deletes, no cleanup needed here
         result = subprocess.run(cmd, check=False)
+
+        # Clean up if script still exists and we're not keeping it
+        if not keep_script:
+            script_path.unlink(missing_ok=True)
 
         return JobResult(
             job_id="interactive",
@@ -271,15 +342,16 @@ class SGEScheduler(BaseScheduler):
             _exit_code=result.returncode,
         )
 
-    def _generate_interactive_script(self, job: "Job") -> str:
+    def _generate_interactive_script(
+        self, job: "Job", script_path: str, keep_script: bool = False
+    ) -> str:
         """Generate wrapper script for interactive jobs."""
-        # Create a temp path for the script (used in template for self-deletion)
-        script_path = tempfile.gettempdir() + f"/hpc_interactive_{id(job)}.sh"
         return render_template(
             "sge/templates/interactive.sh.j2",
             job=job,
             scheduler=self,
             script_path=script_path,
+            keep_script=keep_script,
         )
 
     def _build_qrsh_command(self, job: "Job", script_path: str) -> list[str]:

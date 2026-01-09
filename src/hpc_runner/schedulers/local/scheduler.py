@@ -30,7 +30,9 @@ class LocalScheduler(BaseScheduler):
     _exit_codes: dict[str, int] = {}
     _output_paths: dict[str, dict[str, Path]] = {}
 
-    def submit(self, job: "Job", interactive: bool = False) -> JobResult:
+    def submit(
+        self, job: "Job", interactive: bool = False, keep_script: bool = False
+    ) -> JobResult:
         """Run job as local subprocess."""
         LocalScheduler._job_counter += 1
         job_id = f"local_{LocalScheduler._job_counter}_{datetime.now().strftime('%Y%m%d%H%M%S')}"

@@ -73,7 +73,7 @@ cd {{ job.workdir }}
 {{ job.command }}
 _exit_code=$?
 
-{% if script_path %}
+{% if script_path and not keep_script %}
 # Cleanup temporary script
 rm -f {{ script_path }}
 {% endif %}
