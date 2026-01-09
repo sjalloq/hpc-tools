@@ -148,7 +148,7 @@ def run(
         return
 
     if dry_run:
-        _show_dry_run(job, scheduler, scheduler_args)
+        _show_dry_run(job, scheduler, scheduler_args, interactive=interactive)
         return
 
     # Submit the job
@@ -232,11 +232,15 @@ def _parse_args(args: tuple[str, ...]) -> tuple[list[str], list[str]]:
     return command_parts, scheduler_args
 
 
-def _show_dry_run(job: "Job", scheduler, scheduler_args: list[str]) -> None:
+def _show_dry_run(
+    job: "Job", scheduler, scheduler_args: list[str], interactive: bool = False
+) -> None:
     """Display what would be submitted."""
+    mode = "interactive" if interactive else "batch"
     console.print(
         Panel.fit(
             f"[bold]Scheduler:[/bold] {scheduler.name}\n"
+            f"[bold]Mode:[/bold] {mode}\n"
             f"[bold]Job name:[/bold] {job.name}\n"
             f"[bold]Command:[/bold] {job.command}",
             title="Dry Run",
@@ -248,7 +252,10 @@ def _show_dry_run(job: "Job", scheduler, scheduler_args: list[str]) -> None:
         console.print(f"\n[bold]Scheduler passthrough args:[/bold] {' '.join(scheduler_args)}")
 
     console.print("\n[bold]Generated script:[/bold]")
-    script = scheduler.generate_script(job)
+    if interactive and hasattr(scheduler, "_generate_interactive_script"):
+        script = scheduler._generate_interactive_script(job, "/tmp/example_script.sh")
+    else:
+        script = scheduler.generate_script(job)
     syntax = Syntax(script, "bash", theme="monokai", line_numbers=True)
     console.print(syntax)
 

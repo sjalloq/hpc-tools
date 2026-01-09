@@ -15,6 +15,11 @@ elif [ -f /usr/share/Modules/init/bash ]; then
 fi
 {% endif %}
 
+{% if scheduler.purge_modules %}
+# Purge modules for clean environment
+module purge{% if scheduler.silent_modules %} -s{% endif %}
+
+{% endif %}
 {% if job.modules_path %}
 # Additional module paths
 {% for path in job.modules_path %}
@@ -24,10 +29,6 @@ module use {{ path }}
 
 {% if job.modules %}
 # Load modules
-{% if scheduler.purge_modules %}
-module purge{% if scheduler.silent_modules %} -s{% endif %}
-
-{% endif %}
 {% for mod in job.modules %}
 module load {{ mod }}{% if scheduler.silent_modules %} -s{% endif %}
 
