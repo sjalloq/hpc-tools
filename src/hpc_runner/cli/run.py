@@ -37,6 +37,7 @@ console = Console()
 @click.option("--output", help="Stdout file path pattern")
 @click.option("--array", help="Array job specification (e.g., 1-100)")
 @click.option("--depend", help="Job dependency specification")
+@click.option("--inherit-env/--no-inherit-env", "inherit_env", default=True, help="Inherit environment variables")
 @click.option("--interactive", is_flag=True, help="Run interactively (srun/qrsh)")
 @click.option("--local", is_flag=True, help="Run locally (no scheduler)")
 @click.option("--dry-run", "dry_run", is_flag=True, help="Show what would be submitted")
@@ -59,6 +60,7 @@ def run(
     output: str | None,
     array: str | None,
     depend: str | None,
+    inherit_env: bool,
     interactive: bool,
     local: bool,
     dry_run: bool,
@@ -125,6 +127,9 @@ def run(
         job.stdout = output
     if depend:
         job.dependency = depend
+
+    # inherit_env is always set (has a default), so always apply it
+    job.inherit_env = inherit_env
 
     # Add scheduler passthrough args
     if scheduler_args:

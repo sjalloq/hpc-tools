@@ -163,14 +163,32 @@ class SGEScheduler(BaseScheduler):
         return cmd
 
     def build_interactive_command(self, job: "Job") -> list[str]:
-        """Build qrsh command for interactive jobs."""
+        """Build qrsh command for interactive jobs.
+
+        Note: qrsh supports a subset of qsub options. Notably:
+        - Does NOT support: -S (shell), -o/-e (output), -j (join), -N (name)
+        - Does support: -V, -pe, -l, -q, -cwd
+        """
+        import shlex
+
         cmd = ["qrsh"]
-        cmd.extend(self.render_args(job))
+
+        # Only include qrsh-compatible options
+        QRSH_COMPATIBLE = {"inherit_env", "use_cwd", "cpu", "mem", "time", "queue"}
+
+        for attr_name, value in job.iter_attributes():
+            if attr_name not in QRSH_COMPATIBLE:
+                continue
+            renderer = self.ARG_RENDERERS.get(attr_name)
+            if renderer:
+                cmd.extend(renderer.to_args(value))
+
         cmd.extend(job.raw_args)
         cmd.extend(job.sge_args)
 
-        # Add the command itself
-        cmd.append(job.command)
+        # Add the command - split it back into parts for proper argument handling
+        # This preserves quoting: "bash -c 'echo hello'" -> ['bash', '-c', 'echo hello']
+        cmd.extend(shlex.split(job.command))
 
         return cmd
 
