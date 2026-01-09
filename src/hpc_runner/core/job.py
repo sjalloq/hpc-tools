@@ -71,6 +71,7 @@ class Job:
     inherit_env = JobAttribute[bool]("inherit_env", default=True)
     workdir = JobAttribute[str]("workdir")
     shell = JobAttribute[str]("shell", default="/bin/bash")
+    venv = JobAttribute[str]("venv")  # Virtual environment path
 
     # Working directory behavior
     use_cwd = JobAttribute[bool]("use_cwd", default=True)
@@ -120,6 +121,8 @@ class Job:
         workdir: str | None = None,
         shell: str = "/bin/bash",
         use_cwd: bool = True,
+        venv: str | None = None,
+        env_vars: dict[str, str] | None = None,
         modules: list[str] | None = None,
         modules_path: list[str] | None = None,
         resources: ResourceSet | None = None,
@@ -151,7 +154,13 @@ class Job:
         self.shell = shell
         self.use_cwd = use_cwd
 
+        # Virtual environment - auto-capture from VIRTUAL_ENV if not specified
+        if venv is None:
+            venv = os.environ.get("VIRTUAL_ENV")
+        self.venv = venv
+
         # Non-descriptor attributes
+        self.env_vars: dict[str, str] = env_vars or {}
         self.modules: list[str] = modules or []
         self.modules_path: list[str] = modules_path or []
         self.resources: ResourceSet = resources or ResourceSet()

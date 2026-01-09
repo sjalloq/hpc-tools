@@ -57,6 +57,15 @@ class SGEScheduler(BaseScheduler):
         self.mem_resource = sge_config.get("memory_resource", "mem_free")
         self.time_resource = sge_config.get("time_resource", "h_rt")
 
+        # Module handling config
+        self.purge_modules = sge_config.get("purge_modules", False)
+        self.silent_modules = sge_config.get("silent_modules", False)
+        self.module_init_script = sge_config.get("module_init_script", "")
+
+        # Environment handling config
+        self.expand_makeflags = sge_config.get("expand_makeflags", True)
+        self.unset_vars = sge_config.get("unset_vars", [])
+
         # Build the argument renderer registry
         # Maps Job attribute names -> SGE argument renderer instances
         # Note: 'nodes' and 'tasks' are NOT mapped - they're Slurm/MPI concepts.
@@ -90,7 +99,7 @@ class SGEScheduler(BaseScheduler):
         """Generate qsub script using template."""
         directives = self._build_directives(job, array_range)
         return render_template(
-            "sge/templates/job.sh.j2",
+            "sge/templates/batch.sh.j2",
             job=job,
             scheduler=self,
             directives=directives,
@@ -230,15 +239,70 @@ class SGEScheduler(BaseScheduler):
             Path(script_path).unlink(missing_ok=True)
 
     def _submit_interactive(self, job: "Job") -> JobResult:
-        """Submit via qrsh for interactive execution."""
-        cmd = self.build_interactive_command(job)
+        """Submit via qrsh for interactive execution.
+
+        Creates a wrapper script with full environment setup (modules, venv, etc.)
+        and executes it via qrsh. The script self-deletes after execution.
+        """
+        # Generate wrapper script
+        script = self._generate_interactive_script(job)
+
+        # Write to temp file
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".sh", delete=False, prefix="hpc_interactive_"
+        ) as f:
+            f.write(script)
+            script_path = f.name
+
+        # Make executable
+        Path(script_path).chmod(0o755)
+
+        # Build qrsh command with script path
+        cmd = self._build_qrsh_command(job, script_path)
+
+        # Run and capture exit code
+        # Note: script self-deletes, no cleanup needed here
         result = subprocess.run(cmd, check=False)
+
         return JobResult(
             job_id="interactive",
             scheduler=self,
             job=job,
             _exit_code=result.returncode,
         )
+
+    def _generate_interactive_script(self, job: "Job") -> str:
+        """Generate wrapper script for interactive jobs."""
+        # Create a temp path for the script (used in template for self-deletion)
+        script_path = tempfile.gettempdir() + f"/hpc_interactive_{id(job)}.sh"
+        return render_template(
+            "sge/templates/interactive.sh.j2",
+            job=job,
+            scheduler=self,
+            script_path=script_path,
+        )
+
+    def _build_qrsh_command(self, job: "Job", script_path: str) -> list[str]:
+        """Build qrsh command to run wrapper script."""
+        cmd = ["qrsh"]
+
+        # Only include qrsh-compatible options
+        QRSH_COMPATIBLE = {"inherit_env", "use_cwd", "cpu", "mem", "time", "queue"}
+
+        for attr_name, value in job.iter_attributes():
+            if attr_name not in QRSH_COMPATIBLE:
+                continue
+            renderer = self.ARG_RENDERERS.get(attr_name)
+            if renderer:
+                cmd.extend(renderer.to_args(value))
+
+        cmd.extend(job.raw_args)
+        cmd.extend(job.sge_args)
+
+        # Execute the wrapper script
+        cmd.append(script_path)
+
+        return cmd
 
     def submit_array(self, array: "JobArray") -> ArrayJobResult:
         """Submit array job."""

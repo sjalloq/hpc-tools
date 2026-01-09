@@ -16,6 +16,15 @@ memory_resource = "mem_free"
 time_resource = "h_rt"
 merge_output = true
 
+# Module handling
+purge_modules = false       # Run 'module purge' before loading modules
+silent_modules = false      # Use -s flag for silent module operations
+module_init_script = ""     # Site-specific module init (empty = auto-detect)
+
+# Environment handling
+expand_makeflags = true     # Expand $NSLOTS in MAKEFLAGS
+unset_vars = []             # Environment variables to unset (e.g., ["https_proxy"])
+
 # Slurm-specific settings (for future use)
 [schedulers.slurm]
 # Default Slurm settings

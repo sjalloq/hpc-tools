@@ -81,6 +81,8 @@ def run(
         hpc run -N 4 -n 16 "mpirun ./sim"     # Slurm nodes/tasks
         hpc run -q batch.q -l gpu=2 "train"   # SGE queue/resources
     """
+    import shlex
+
     from hpc_runner.core.job import Job
     from hpc_runner.schedulers import get_scheduler
 
@@ -90,7 +92,8 @@ def run(
     if not command_parts:
         raise click.UsageError("Command is required")
 
-    cmd_str = " ".join(command_parts)
+    # Use shlex.join to preserve quoting for args with spaces/special chars
+    cmd_str = shlex.join(command_parts)
 
     # Get scheduler
     scheduler_name = "local" if local else ctx.scheduler
