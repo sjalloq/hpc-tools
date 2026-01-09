@@ -232,8 +232,13 @@ class SGEScheduler(BaseScheduler):
     def _submit_interactive(self, job: "Job") -> JobResult:
         """Submit via qrsh for interactive execution."""
         cmd = self.build_interactive_command(job)
-        subprocess.run(cmd, check=False)
-        return JobResult(job_id="interactive", scheduler=self, job=job)
+        result = subprocess.run(cmd, check=False)
+        return JobResult(
+            job_id="interactive",
+            scheduler=self,
+            job=job,
+            _exit_code=result.returncode,
+        )
 
     def submit_array(self, array: "JobArray") -> ArrayJobResult:
         """Submit array job."""

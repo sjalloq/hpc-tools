@@ -36,6 +36,7 @@ class JobResult:
     job: "Job"
 
     _cached_status: JobStatus | None = field(default=None, repr=False)
+    _exit_code: int | None = field(default=None, repr=False)  # For interactive jobs
 
     @property
     def status(self) -> JobStatus:
@@ -55,6 +56,9 @@ class JobResult:
     @property
     def returncode(self) -> int | None:
         """Get exit code (None if not complete)."""
+        # For interactive jobs, use cached exit code
+        if self._exit_code is not None:
+            return self._exit_code
         if not self.is_complete:
             return None
         return self.scheduler.get_exit_code(self.job_id)
