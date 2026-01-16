@@ -1,8 +1,8 @@
-"""Custom exceptions for hpc-tools."""
+"""Custom exceptions for hpc-runner."""
 
 
 class HPCToolsError(Exception):
-    """Base exception for hpc-tools."""
+    """Base exception for hpc-runner."""
 
 
 class SchedulerError(HPCToolsError):

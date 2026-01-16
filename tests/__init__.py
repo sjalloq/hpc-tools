@@ -1,1 +1,1 @@
-"""Tests for hpc-tools."""
+"""Tests for hpc-runner."""

@@ -1,4 +1,4 @@
-# hpc-tools default configuration
+# hpc-runner default configuration
 
 [defaults]
 scheduler = "auto"

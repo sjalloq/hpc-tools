@@ -110,7 +110,7 @@ modules = ["python/3.11"]
 queue = "gpu"
 resources = [{name = "gpu", value = 1}]
 '''
-    config_file = temp_dir / "hpc-tools.toml"
+    config_file = temp_dir / "hpc-runner.toml"
     config_file.write_text(config_content)
     return config_file
 

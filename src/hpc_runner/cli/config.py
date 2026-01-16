@@ -29,10 +29,10 @@ def show(ctx: Context) -> None:
         console.print("[yellow]No configuration file found[/yellow]")
         console.print("Using default settings")
         console.print("\nSearch locations:")
-        console.print("  1. ./hpc-tools.toml")
-        console.print("  2. ./pyproject.toml [tool.hpc-tools]")
-        console.print("  3. <git root>/hpc-tools.toml")
-        console.print("  4. ~/.config/hpc-tools/config.toml")
+        console.print("  1. ./hpc-runner.toml")
+        console.print("  2. ./pyproject.toml [tool.hpc-runner]")
+        console.print("  3. <git root>/hpc-runner.toml")
+        console.print("  4. ~/.config/hpc-runner/config.toml")
         return
 
     console.print(f"[bold]Config file:[/bold] {config_path}")
@@ -45,16 +45,16 @@ def show(ctx: Context) -> None:
 
 
 @config_cmd.command("init")
-@click.option("--global", "global_config", is_flag=True, help="Create in ~/.config/hpc-tools/")
+@click.option("--global", "global_config", is_flag=True, help="Create in ~/.config/hpc-runner/")
 @pass_context
 def init(ctx: Context, global_config: bool) -> None:
     """Create a new configuration file."""
     if global_config:
-        config_dir = Path.home() / ".config" / "hpc-tools"
+        config_dir = Path.home() / ".config" / "hpc-runner"
         config_dir.mkdir(parents=True, exist_ok=True)
         config_path = config_dir / "config.toml"
     else:
-        config_path = Path.cwd() / "hpc-tools.toml"
+        config_path = Path.cwd() / "hpc-runner.toml"
 
     if config_path.exists():
         if not click.confirm(f"{config_path} already exists. Overwrite?"):
@@ -62,7 +62,10 @@ def init(ctx: Context, global_config: bool) -> None:
             return
 
     # Write default config
-    default_config = '''# hpc-tools configuration
+    default_config = '''# hpc-runner configuration
+#
+# This file is safe to commit to a project repo (for shared defaults).
+# For a per-user config, run: hpc config init --global
 
 [defaults]
 # Default job settings

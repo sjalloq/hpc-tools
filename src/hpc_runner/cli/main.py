@@ -52,6 +52,12 @@ def cli(ctx: Context, config: Path | None, scheduler: str | None, verbose: bool)
     ctx.scheduler = scheduler
     ctx.verbose = verbose
 
+    # Ensure the config cache reflects CLI selection / CWD discovery.
+    # Without this, --config would only affect `hpc config ...` commands.
+    from hpc_runner.core.config import reload_config
+
+    reload_config(config)
+
 
 # Import and register subcommands (must be after cli is defined to avoid circular imports)
 from hpc_runner.cli.cancel import cancel  # noqa: E402

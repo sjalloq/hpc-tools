@@ -78,33 +78,33 @@ def find_config_file() -> Path | None:
     """Find configuration file in priority order.
 
     Search order:
-    1. ./hpc-tools.toml (current directory)
-    2. ./pyproject.toml [tool.hpc-tools] section
-    3. Git repository root hpc-tools.toml
-    4. ~/.config/hpc-tools/config.toml
+    1. ./hpc-runner.toml (current directory)
+    2. ./pyproject.toml [tool.hpc-runner] section
+    3. Git repository root hpc-runner.toml
+    4. ~/.config/hpc-runner/config.toml
     5. Package defaults
     """
     # Current directory
     cwd = Path.cwd()
-    if (cwd / "hpc-tools.toml").exists():
-        return cwd / "hpc-tools.toml"
+    if (cwd / "hpc-runner.toml").exists():
+        return cwd / "hpc-runner.toml"
 
     if (cwd / "pyproject.toml").exists():
         try:
             with open(cwd / "pyproject.toml", "rb") as f:
                 pyproject = tomllib.load(f)
-            if "tool" in pyproject and "hpc-tools" in pyproject["tool"]:
+            if "tool" in pyproject and "hpc-runner" in pyproject["tool"]:
                 return cwd / "pyproject.toml"
         except Exception:
             pass
 
     # Git root
     git_root = _find_git_root(cwd)
-    if git_root and (git_root / "hpc-tools.toml").exists():
-        return git_root / "hpc-tools.toml"
+    if git_root and (git_root / "hpc-runner.toml").exists():
+        return git_root / "hpc-runner.toml"
 
     # User config
-    user_config = Path.home() / ".config" / "hpc-tools" / "config.toml"
+    user_config = Path.home() / ".config" / "hpc-runner" / "config.toml"
     if user_config.exists():
         return user_config
 
@@ -145,7 +145,8 @@ def load_config(path: Path | str | None = None) -> HPCConfig:
 
     # Handle pyproject.toml
     if path.name == "pyproject.toml":
-        data = data.get("tool", {}).get("hpc-tools", {})
+        tool_section = data.get("tool", {})
+        data = tool_section.get("hpc-runner", {})
 
     config = HPCConfig(
         defaults=data.get("defaults", {}),

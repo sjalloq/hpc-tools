@@ -36,7 +36,7 @@ hpc --scheduler sge run --cpu 4 --mem 8G "python script.py"
 - **JobResult/ArrayJobResult** - Returned from submission, provides status polling and output access
 - **JobStatus** - Unified enum: PENDING, RUNNING, COMPLETED, FAILED, CANCELLED, TIMEOUT, UNKNOWN
 - **ResourceSet** - Collection of named resources (gpu, licenses, etc.)
-- **HPCConfig** - TOML-based config with hierarchy: ./hpc-tools.toml > pyproject.toml > git root > ~/.config > package defaults
+- **HPCConfig** - TOML-based config with hierarchy: ./hpc-runner.toml > pyproject.toml > git root > ~/.config > package defaults
 
 ### Scheduler System (`src/hpc_runner/schedulers/`)
 

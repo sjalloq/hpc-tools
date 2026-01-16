@@ -1,1 +1,1 @@
-"""CLI for hpc-tools."""
+"""CLI for hpc-runner."""

@@ -129,10 +129,10 @@ p.wait()
 hpc-runner uses TOML configuration files. Location priority:
 
 1. `--config /path/to/config.toml`
-2. `./hpc-tools.toml`
-3. `./pyproject.toml` under `[tool.hpc-tools]`
-4. Git repository root `hpc-tools.toml`
-5. `~/.config/hpc-tools/config.toml`
+2. `./hpc-runner.toml`
+3. `./pyproject.toml` under `[tool.hpc-runner]`
+4. Git repository root `hpc-runner.toml`
+5. `~/.config/hpc-runner/config.toml`
 6. Package defaults
 
 ### Example Configuration
@@ -230,11 +230,6 @@ mypy src/hpc_runner
 ruff check src/hpc_runner
 ruff format src/hpc_runner
 ```
-
-## Documentation
-
-- [Programmatic API Reference](docs/programmatic_api.md)
-- [TUI Styling Guide](docs/TEXTUAL_STYLING_COOKBOOK.md)
 
 ## License
 

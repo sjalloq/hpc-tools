@@ -1,4 +1,4 @@
-"""Core models and abstractions for hpc-tools."""
+"""Core models and abstractions for hpc-runner."""
 
 from .exceptions import (
     AccountingNotAvailable,

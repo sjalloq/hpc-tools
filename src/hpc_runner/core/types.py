@@ -1,4 +1,4 @@
-"""Type aliases for hpc-tools."""
+"""Type aliases for hpc-runner."""
 
 from pathlib import Path
 from typing import TypeAlias

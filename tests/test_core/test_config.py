@@ -105,7 +105,7 @@ class TestFindConfigFile:
 
     def test_find_config_in_current_dir(self, temp_dir):
         """Test finding config in current directory."""
-        config_file = temp_dir / "hpc-tools.toml"
+        config_file = temp_dir / "hpc-runner.toml"
         config_file.write_text("[defaults]\ncpu = 1\n")
 
         old_cwd = os.getcwd()
@@ -119,7 +119,7 @@ class TestFindConfigFile:
     def test_find_config_in_pyproject(self, temp_dir):
         """Test finding config in pyproject.toml."""
         pyproject = temp_dir / "pyproject.toml"
-        pyproject.write_text('[tool.hpc-tools]\n[tool.hpc-tools.defaults]\ncpu = 1\n')
+        pyproject.write_text('[tool.hpc-runner]\n[tool.hpc-runner.defaults]\ncpu = 1\n')
 
         old_cwd = os.getcwd()
         os.chdir(temp_dir)

@@ -38,8 +38,11 @@ dependencies = [
 dev = [
     "pytest>=7.0",
     "pytest-cov",
+    "pytest-asyncio",
     "mypy",
     "ruff",
+    "sphinx>=7.0",
+    "furo>=2024.0.0",
     "build",
     "twine",
     "hatch-vcs",
@@ -50,6 +53,7 @@ all = [
 
 [project.scripts]
 hpc = "hpc_runner.cli.main:cli"
+submit = "hpc_runner.cli.submit:main"
 
 [project.urls]
 Homepage = "https://github.com/sjalloq/hpc-runner"
