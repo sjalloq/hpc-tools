@@ -123,6 +123,8 @@ class Job:
         use_cwd: bool = True,
         venv: str | None = None,
         env_vars: dict[str, str] | None = None,
+        env_prepend: dict[str, str] | None = None,
+        env_append: dict[str, str] | None = None,
         modules: list[str] | None = None,
         modules_path: list[str] | None = None,
         resources: ResourceSet | None = None,
@@ -161,6 +163,8 @@ class Job:
 
         # Non-descriptor attributes
         self.env_vars: dict[str, str] = env_vars or {}
+        self.env_prepend: dict[str, str] = env_prepend or {}
+        self.env_append: dict[str, str] = env_append or {}
         self.modules: list[str] = modules or []
         self.modules_path: list[str] = modules_path or []
         self.resources: ResourceSet = resources or ResourceSet()

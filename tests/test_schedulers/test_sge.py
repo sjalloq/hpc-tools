@@ -156,6 +156,72 @@ class TestSGEScheduler:
         assert "-pe" in cmd
         assert "-q" in cmd
 
+    def test_generate_script_env_prepend(self):
+        """Test script generation with env_prepend."""
+        scheduler = SGEScheduler()
+        job = Job(
+            command="echo hello",
+            name="test_job",
+            env_prepend={"PATH": "/new/bin"},
+        )
+
+        script = scheduler.generate_script(job)
+
+        assert '# Prepend to environment variables' in script
+        assert 'export PATH="/new/bin${PATH:+:$PATH}"' in script
+
+    def test_generate_script_env_append(self):
+        """Test script generation with env_append."""
+        scheduler = SGEScheduler()
+        job = Job(
+            command="echo hello",
+            name="test_job",
+            env_append={"PYTHONPATH": "/extra/lib"},
+        )
+
+        script = scheduler.generate_script(job)
+
+        assert '# Append to environment variables' in script
+        assert 'export PYTHONPATH="${PYTHONPATH:+$PYTHONPATH:}/extra/lib"' in script
+
+    def test_generate_script_all_env_types(self):
+        """Test script with env_vars, env_prepend, and env_append together."""
+        scheduler = SGEScheduler()
+        job = Job(
+            command="echo hello",
+            name="test_job",
+            env_prepend={"PATH": "/cocotb/bin"},
+            env_append={"PYTHONPATH": "/extra/lib"},
+            env_vars={"COCOTB_TOPLEVEL": "counter"},
+        )
+
+        script = scheduler.generate_script(job)
+
+        # All three sections should be present
+        assert 'export PATH="/cocotb/bin${PATH:+:$PATH}"' in script
+        assert 'export PYTHONPATH="${PYTHONPATH:+$PYTHONPATH:}/extra/lib"' in script
+        assert 'export COCOTB_TOPLEVEL="counter"' in script
+
+        # Prepend/append should come before env_vars (full overwrite)
+        prepend_pos = script.index("Prepend to environment variables")
+        append_pos = script.index("Append to environment variables")
+        vars_pos = script.index("Set custom environment variables")
+        assert prepend_pos < append_pos < vars_pos
+
+    def test_generate_script_env_vars_unchanged(self):
+        """Test that existing env_vars behavior is unchanged."""
+        scheduler = SGEScheduler()
+        job = Job(
+            command="echo hello",
+            name="test_job",
+            env_vars={"FOO": "bar", "BAZ": "qux"},
+        )
+
+        script = scheduler.generate_script(job)
+
+        assert 'export FOO="bar"' in script
+        assert 'export BAZ="qux"' in script
+
     def test_configurable_pe_name(self):
         """Test that PE name is configurable."""
         with patch("hpc_runner.schedulers.sge.scheduler.get_config") as mock_config:
