@@ -141,6 +141,18 @@ class SGEScheduler(BaseScheduler):
             keep_script=keep_script,
         )
 
+    def generate_interactive_script(
+        self, job: Job, script_path: str, keep_script: bool = False
+    ) -> str:
+        """Generate wrapper script for interactive jobs."""
+        return render_template(
+            "sge/templates/interactive.sh.j2",
+            job=job,
+            scheduler=self,
+            script_path=script_path,
+            keep_script=keep_script,
+        )
+
     def _build_directives(self, job: Job, array_range: str | None = None) -> list[str]:
         """Build complete list of #$ directives for the job.
 
@@ -272,6 +284,8 @@ class SGEScheduler(BaseScheduler):
 
             print(f"Script saved: {script_path}", file=sys.stderr)
 
+        workdir = Path(job.workdir).resolve() if job.workdir else None
+
         try:
             result = subprocess.run(
                 ["qsub", str(script_path)],
@@ -279,6 +293,7 @@ class SGEScheduler(BaseScheduler):
                 text=True,
                 errors="replace",
                 check=True,
+                cwd=workdir,
             )
             job_id = parse_qsub_output(result.stdout)
 
@@ -308,7 +323,7 @@ class SGEScheduler(BaseScheduler):
         script_path = script_dir / script_name
 
         # Generate wrapper script with the actual path (for self-deletion)
-        script = self._generate_interactive_script(job, str(script_path), keep_script=keep_script)
+        script = self.generate_interactive_script(job, str(script_path), keep_script=keep_script)
 
         # Write script to shared filesystem
         script_path.write_text(script)
@@ -323,8 +338,10 @@ class SGEScheduler(BaseScheduler):
         # Build qrsh command with script path
         cmd = self._build_qrsh_command(job, str(script_path))
 
+        workdir = Path(job.workdir).resolve() if job.workdir else None
+
         # Run and capture exit code
-        result = subprocess.run(cmd, check=False)
+        result = subprocess.run(cmd, check=False, cwd=workdir)
 
         # Clean up if script still exists and we're not keeping it
         if not keep_script:
@@ -335,18 +352,6 @@ class SGEScheduler(BaseScheduler):
             scheduler=self,
             job=job,
             _exit_code=result.returncode,
-        )
-
-    def _generate_interactive_script(
-        self, job: Job, script_path: str, keep_script: bool = False
-    ) -> str:
-        """Generate wrapper script for interactive jobs."""
-        return render_template(
-            "sge/templates/interactive.sh.j2",
-            job=job,
-            scheduler=self,
-            script_path=script_path,
-            keep_script=keep_script,
         )
 
     def _build_qrsh_command(self, job: Job, script_path: str) -> list[str]:
@@ -379,12 +384,15 @@ class SGEScheduler(BaseScheduler):
             f.write(script)
             script_path = f.name
 
+        workdir = Path(array.job.workdir).resolve() if array.job.workdir else None
+
         try:
             result = subprocess.run(
                 ["qsub", script_path],
                 capture_output=True,
                 text=True,
                 check=True,
+                cwd=workdir,
             )
             job_id = parse_qsub_output(result.stdout)
 

@@ -1,6 +1,8 @@
 """Main CLI entry point using rich-click."""
 
+from collections.abc import Callable
 from pathlib import Path
+from typing import TypeVar
 
 import rich_click as click
 from rich.console import Console
@@ -20,7 +22,8 @@ class Context:
         self.verbose: bool = False
 
 
-pass_context = click.make_pass_decorator(Context, ensure=True)
+F = TypeVar("F", bound=Callable[..., object])
+pass_context: Callable[[F], F] = click.make_pass_decorator(Context, ensure=True)  # type: ignore[assignment]
 
 
 @click.group(context_settings={"help_option_names": ["-h", "--help"]})

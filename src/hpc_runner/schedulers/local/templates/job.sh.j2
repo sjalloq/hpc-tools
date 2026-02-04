@@ -64,9 +64,16 @@ export {{ key }}="{{ value }}"
 {% endfor %}
 {% endif %}
 
-{% if job.workdir %}
-# Change to working directory
-cd {{ job.workdir }}
+{% if stdout_path and merge_output %}
+# Redirect stdout and stderr to file
+exec > {{ stdout_path }} 2>&1
+{% elif stdout_path %}
+# Redirect stdout to file
+exec > {{ stdout_path }}
+{% endif %}
+{% if stderr_path and not merge_output %}
+# Redirect stderr to file
+exec 2> {{ stderr_path }}
 {% endif %}
 
 # Execute command

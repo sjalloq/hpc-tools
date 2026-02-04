@@ -1,8 +1,7 @@
 """Tests for CLI run command."""
 
-from click.testing import CliRunner
-
 import pytest
+from click.testing import CliRunner
 
 from hpc_runner.cli.main import cli
 from hpc_runner.cli.run import _parse_args
@@ -120,13 +119,18 @@ class TestRunCommand:
         result = runner.invoke(
             cli,
             [
-                "--scheduler", "local",
+                "--scheduler",
+                "local",
                 "run",
                 "--dry-run",
-                "--job-name", "test_job",
-                "--cpu", "4",
-                "--mem", "16G",
-                "python", "script.py",
+                "--job-name",
+                "test_job",
+                "--cpu",
+                "4",
+                "--mem",
+                "16G",
+                "python",
+                "script.py",
             ],
         )
         assert result.exit_code == 0
@@ -158,13 +162,17 @@ class TestRunCommand:
         result = runner.invoke(
             cli,
             [
-                "--scheduler", "local",
+                "--scheduler",
+                "local",
                 "--verbose",
                 "run",
                 "--dry-run",
-                "-N", "4",
-                "-n", "16",
-                "mpirun", "./sim",
+                "-N",
+                "4",
+                "-n",
+                "16",
+                "mpirun",
+                "./sim",
             ],
         )
         assert result.exit_code == 0
@@ -187,16 +195,113 @@ class TestRunCommand:
         result = runner.invoke(
             cli,
             [
-                "--scheduler", "local",
+                "--scheduler",
+                "local",
                 "run",
                 "--dry-run",
-                "--array", "1-10",
-                "echo", "task",
+                "--array",
+                "1-10",
+                "echo",
+                "task",
             ],
         )
         assert result.exit_code == 0
         assert "Array job" in result.output
         assert "10 tasks" in result.output
+
+    def test_run_with_stdout(self, runner, temp_dir):
+        """Test --stdout directs output to a file."""
+        result = runner.invoke(
+            cli,
+            [
+                "run",
+                "--local",
+                "--interactive",
+                "--directory",
+                str(temp_dir),
+                "--stdout",
+                "out.log",
+                "echo",
+                "hello",
+            ],
+        )
+        assert result.exit_code == 0
+        out = (temp_dir / "out.log").read_text()
+        assert "hello" in out
+
+    def test_run_with_stderr(self, runner, temp_dir):
+        """Test --stderr directs stderr to a separate file."""
+        result = runner.invoke(
+            cli,
+            [
+                "run",
+                "--local",
+                "--interactive",
+                "--directory",
+                str(temp_dir),
+                "--stdout",
+                "out.log",
+                "--stderr",
+                "err.log",
+                "--",
+                "bash",
+                "-c",
+                "echo stderr msg >&2",
+            ],
+        )
+        assert result.exit_code == 0
+        err = (temp_dir / "err.log").read_text()
+        assert "stderr msg" in err
+
+    def test_run_with_directory(self, runner, temp_dir):
+        """Test --directory sets the working directory."""
+        subdir = temp_dir / "workdir"
+        subdir.mkdir()
+        result = runner.invoke(
+            cli,
+            [
+                "run",
+                "--local",
+                "--interactive",
+                "--directory",
+                str(subdir),
+                "--stdout",
+                "pwd.log",
+                "pwd",
+            ],
+        )
+        assert result.exit_code == 0
+        out = (subdir / "pwd.log").read_text()
+        assert str(subdir) in out
+
+    def test_run_with_relative_directory_and_stdout(self, runner, temp_dir):
+        """Test --directory with relative path combined with --stdout."""
+        subdir = temp_dir / "reltest"
+        subdir.mkdir()
+        import os
+
+        old_cwd = os.getcwd()
+        try:
+            os.chdir(temp_dir)
+            result = runner.invoke(
+                cli,
+                [
+                    "run",
+                    "--local",
+                    "--interactive",
+                    "--directory",
+                    "reltest",
+                    "--stdout",
+                    "out.log",
+                    "echo",
+                    "hello",
+                ],
+            )
+            assert result.exit_code == 0
+            out = (subdir / "out.log").read_text()
+            assert "hello" in out
+        finally:
+            os.chdir(old_cwd)
 
 
 class TestMainCLI:

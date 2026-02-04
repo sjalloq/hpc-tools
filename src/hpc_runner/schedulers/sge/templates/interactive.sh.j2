@@ -76,11 +76,6 @@ if [ -n "$MAKEFLAGS" ]; then
 fi
 {% endif %}
 
-{% if job.workdir %}
-# Change to working directory
-cd {{ job.workdir }}
-{% endif %}
-
 # Execute command
 {{ job.command }}
 _exit_code=$?

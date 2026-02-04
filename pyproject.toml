@@ -39,13 +39,14 @@ dev = [
     "pytest>=7.0",
     "pytest-cov",
     "pytest-asyncio",
-    "mypy",
-    "ruff",
+    "mypy>=1.19",
+    "ruff>=0.15",
     "sphinx>=7.0",
     "furo>=2024.0.0",
     "build",
     "twine",
     "hatch-vcs",
+    "pre-commit",
 ]
 all = [
     "hpc-runner[dev]",

@@ -35,7 +35,7 @@ console = Console()
 @click.option("--job-type", "job_type", help="Job type from config")
 @click.option("--module", "modules", multiple=True, help="Modules to load (repeatable)")
 @click.option("--stderr", help="Separate stderr file (default: merged)")
-@click.option("--output", help="Stdout file path pattern")
+@click.option("--stdout", "stdout", help="Stdout file path pattern")
 @click.option("--array", help="Array job specification (e.g., 1-100)")
 @click.option("--depend", help="Job dependency specification")
 @click.option(
@@ -49,7 +49,7 @@ console = Console()
 @click.option("--dry-run", "dry_run", is_flag=True, help="Show what would be submitted")
 @click.option("--wait", is_flag=True, help="Wait for job completion")
 @click.option("--keep-script", "keep_script", is_flag=True, help="Keep job script for debugging")
-@pass_context  # type: ignore[has-type, untyped-decorator]
+@pass_context
 def run(
     ctx: Context,
     args: tuple[str, ...],
@@ -64,7 +64,7 @@ def run(
     job_type: str | None,
     modules: tuple[str, ...],
     stderr: str | None,
-    output: str | None,
+    stdout: str | None,
     array: str | None,
     depend: str | None,
     inherit_env: bool,
@@ -134,8 +134,8 @@ def run(
         job.modules = list(modules)
     if stderr:
         job.stderr = stderr
-    if output:
-        job.stdout = output
+    if stdout:
+        job.stdout = stdout
     if depend:
         job.dependency = depend
 
@@ -261,8 +261,8 @@ def _show_dry_run(
         console.print(f"\n[bold]Scheduler passthrough args:[/bold] {' '.join(scheduler_args)}")
 
     console.print("\n[bold]Generated script:[/bold]")
-    if interactive and hasattr(scheduler, "_generate_interactive_script"):
-        script = scheduler._generate_interactive_script(job, "/tmp/example_script.sh")
+    if interactive:
+        script = scheduler.generate_interactive_script(job, "/tmp/example_script.sh")
     else:
         script = scheduler.generate_script(job)
     syntax = Syntax(script, "bash", theme="monokai", line_numbers=True)

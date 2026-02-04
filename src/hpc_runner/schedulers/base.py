@@ -135,6 +135,22 @@ class BaseScheduler(ABC):
     # Optional Methods - Override if scheduler supports these
     # =========================================================================
 
+    def generate_interactive_script(self, job: Job, script_path: str) -> str:
+        """Generate wrapper script for interactive jobs.
+
+        By default, falls back to the standard batch script.
+        Override in subclasses that need a different template for
+        interactive sessions (e.g. SGE uses qrsh with no #$ directives).
+
+        Args:
+            job: Job to generate script for.
+            script_path: Path where the script will be written.
+
+        Returns:
+            Script content as a string.
+        """
+        return self.generate_script(job)
+
     def get_output_path(self, job_id: str, stream: str) -> Path | None:
         """Get path to output file.
 
