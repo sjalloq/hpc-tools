@@ -1,0 +1,4 @@
+#%Module
+module-whatis "Dummy tool v1.0 for testing"
+setenv DUMMY_TOOL_VERSION 1.0
+setenv DUMMY_TOOL_LOADED true

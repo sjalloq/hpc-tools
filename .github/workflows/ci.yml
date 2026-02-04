@@ -47,6 +47,9 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
+      - name: Install environment-modules
+        run: sudo apt-get update && sudo apt-get install -y environment-modules
+
       - name: Install dependencies
         run: pip install -e ".[dev]"
 

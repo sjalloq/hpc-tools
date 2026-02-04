@@ -1,6 +1,6 @@
 """Tests for local scheduler."""
 
-import time
+import shutil
 from pathlib import Path
 
 import pytest
@@ -8,6 +8,15 @@ import pytest
 from hpc_runner.core.job import Job
 from hpc_runner.core.result import JobStatus
 from hpc_runner.schedulers.local import LocalScheduler
+
+MODULEFILES_DIR = str(Path(__file__).parent.parent / "modulefiles")
+
+has_modules = (
+    shutil.which("modulecmd") is not None
+    or Path("/usr/share/Modules/init/bash").exists()
+    or Path("/etc/profile.d/modules.sh").exists()
+)
+requires_modules = pytest.mark.skipif(not has_modules, reason="Environment Modules not installed")
 
 
 class TestLocalScheduler:
@@ -151,3 +160,60 @@ class TestLocalScheduler:
         assert "module use /opt/modulefiles" in script
         assert "module load python/3.11" in script
         assert "module load gcc/12.2" in script
+
+    @requires_modules
+    def test_module_loading(self, temp_dir):
+        """Test that a module is actually loaded and sets env vars."""
+        scheduler = LocalScheduler()
+        job = Job(
+            command="echo $DUMMY_TOOL_LOADED",
+            modules=["dummy_tool/1.0"],
+            modules_path=[MODULEFILES_DIR],
+            workdir=temp_dir,
+            stdout="out.log",
+        )
+
+        result = scheduler.submit(job, interactive=True)
+
+        assert result.returncode == 0
+        stdout_path = scheduler.get_output_path(result.job_id, "stdout")
+        content = stdout_path.read_text().strip()
+        assert content == "true"
+
+    @requires_modules
+    def test_multiple_modules(self, temp_dir):
+        """Test loading multiple modules sets all env vars."""
+        scheduler = LocalScheduler()
+        job = Job(
+            command="echo $DUMMY_TOOL_LOADED $DUMMY_LIB_LOADED",
+            modules=["dummy_tool/1.0", "dummy_lib/2.5"],
+            modules_path=[MODULEFILES_DIR],
+            workdir=temp_dir,
+            stdout="out.log",
+        )
+
+        result = scheduler.submit(job, interactive=True)
+
+        assert result.returncode == 0
+        stdout_path = scheduler.get_output_path(result.job_id, "stdout")
+        content = stdout_path.read_text().strip()
+        assert content == "true true"
+
+    @requires_modules
+    def test_module_sets_env_var(self, temp_dir):
+        """Test that module sets specific version string in environment."""
+        scheduler = LocalScheduler()
+        job = Job(
+            command="echo $DUMMY_TOOL_VERSION",
+            modules=["dummy_tool/1.0"],
+            modules_path=[MODULEFILES_DIR],
+            workdir=temp_dir,
+            stdout="out.log",
+        )
+
+        result = scheduler.submit(job, interactive=True)
+
+        assert result.returncode == 0
+        stdout_path = scheduler.get_output_path(result.job_id, "stdout")
+        content = stdout_path.read_text().strip()
+        assert content == "1.0"
