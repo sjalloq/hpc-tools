@@ -1,11 +1,8 @@
 """Tests for configuration system."""
 
 import os
-from pathlib import Path
 
-import pytest
-
-from hpc_runner.core.config import HPCConfig, find_config_file, load_config
+from hpc_runner.core.config import HPCConfig, _merge, find_config_file, load_config
 
 
 class TestHPCConfig:
@@ -75,6 +72,66 @@ class TestHPCConfig:
         assert sge_config == {}
 
 
+class TestMerge:
+    """Tests for _merge deep merge logic."""
+
+    def test_list_merge_preserves_order(self):
+        """Module load order matters on HPC - merge must preserve it."""
+        base = {"modules": ["gcc/12", "openmpi/4", "python/3.11"]}
+        override = {"modules": ["cuda/12", "python/3.11"]}
+        result = _merge(base, override)
+
+        # python/3.11 appears in both - should be deduplicated
+        assert result["modules"].count("python/3.11") == 1
+        # Order from base should come first, then new items from override
+        assert result["modules"] == ["gcc/12", "openmpi/4", "python/3.11", "cuda/12"]
+
+    def test_list_merge_reset_marker(self):
+        """The '-' marker should discard the base list entirely."""
+        base = {"modules": ["gcc/12", "openmpi/4"]}
+        override = {"modules": ["-", "intel/2024", "impi/2024"]}
+        result = _merge(base, override)
+
+        assert result["modules"] == ["intel/2024", "impi/2024"]
+
+    def test_list_merge_no_duplicates_from_base(self):
+        """Duplicate entries within a single list should be preserved."""
+        base = {"args": ["-v"]}
+        override = {"args": ["-v", "-x"]}
+        result = _merge(base, override)
+
+        # -v appears in both lists but dedup should keep only one
+        assert result["args"].count("-v") == 1
+        assert "-x" in result["args"]
+
+    def test_dict_merge_deep(self):
+        """Nested dicts should merge recursively."""
+        base = {"schedulers": {"sge": {"pe": "smp", "mem": "mem_free"}}}
+        override = {"schedulers": {"sge": {"pe": "mpi"}}}
+        result = _merge(base, override)
+
+        assert result["schedulers"]["sge"]["pe"] == "mpi"
+        assert result["schedulers"]["sge"]["mem"] == "mem_free"
+
+    def test_scalar_override(self):
+        """Scalars in override should replace base."""
+        base = {"cpu": 1, "mem": "4G"}
+        override = {"cpu": 8}
+        result = _merge(base, override)
+
+        assert result["cpu"] == 8
+        assert result["mem"] == "4G"
+
+    def test_new_keys_added(self):
+        """Keys only in override should be added."""
+        base = {"cpu": 1}
+        override = {"queue": "batch"}
+        result = _merge(base, override)
+
+        assert result["cpu"] == 1
+        assert result["queue"] == "batch"
+
+
 class TestLoadConfig:
     """Tests for config loading."""
 
@@ -119,7 +176,7 @@ class TestFindConfigFile:
     def test_find_config_in_pyproject(self, temp_dir):
         """Test finding config in pyproject.toml."""
         pyproject = temp_dir / "pyproject.toml"
-        pyproject.write_text('[tool.hpc-runner]\n[tool.hpc-runner.defaults]\ncpu = 1\n')
+        pyproject.write_text("[tool.hpc-runner]\n[tool.hpc-runner.defaults]\ncpu = 1\n")
 
         old_cwd = os.getcwd()
         os.chdir(temp_dir)

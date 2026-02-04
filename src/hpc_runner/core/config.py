@@ -68,7 +68,13 @@ def _merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
             if value and value[0] == "-":
                 result[key] = value[1:]
             else:
-                result[key] = list(set(result[key] + value))
+                seen: set[Any] = set()
+                merged: list[Any] = []
+                for item in result[key] + value:
+                    if item not in seen:
+                        seen.add(item)
+                        merged.append(item)
+                result[key] = merged
         else:
             result[key] = value
     return result
