@@ -9,8 +9,6 @@ from textual.containers import Horizontal
 from textual.message import Message
 from textual.widgets import Input, Select, Static
 
-from hpc_runner.core.result import JobStatus
-
 if TYPE_CHECKING:
     from textual.app import ComposeResult
 
@@ -112,9 +110,9 @@ class FilterBar(Horizontal):
     def on_select_changed(self, event: Select.Changed) -> None:
         """Handle dropdown selection changes."""
         if event.select.id == "status-filter":
-            self._current_status = event.value
+            self._current_status = str(event.value) if event.value != Select.BLANK else None
         elif event.select.id == "queue-filter":
-            self._current_queue = event.value
+            self._current_queue = str(event.value) if event.value != Select.BLANK else None
 
         self._emit_filter_changed()
 

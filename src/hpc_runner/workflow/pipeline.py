@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
@@ -176,5 +177,5 @@ class Pipeline:
     def __len__(self) -> int:
         return len(self.jobs)
 
-    def __iter__(self):
+    def __iter__(self) -> Iterator[PipelineJob]:
         return iter(self.jobs)

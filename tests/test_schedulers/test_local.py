@@ -98,7 +98,7 @@ class TestLocalScheduler:
     def test_output_path(self, temp_dir):
         """Test output file creation."""
         scheduler = LocalScheduler()
-        job = Job(command="echo hello", workdir=temp_dir)
+        job = Job(command="echo hello", workdir=temp_dir, stdout="out.log")
 
         result = scheduler.submit(job, interactive=True)
 
@@ -113,6 +113,7 @@ class TestLocalScheduler:
         job = Job(
             command="echo stdout; echo stderr >&2",
             workdir=temp_dir,
+            stdout="merged.log",
         )
 
         result = scheduler.submit(job, interactive=True)
@@ -122,3 +123,31 @@ class TestLocalScheduler:
 
         assert "stdout" in content
         assert "stderr" in content  # Merged
+
+    def test_passthrough_mode(self, temp_dir):
+        """Test passthrough mode: no stdout/stderr means no output files."""
+        scheduler = LocalScheduler()
+        job = Job(command="echo passthrough", workdir=temp_dir)
+
+        result = scheduler.submit(job, interactive=True)
+
+        assert result.returncode == 0
+        # No output paths should be stored in passthrough mode
+        stdout_path = scheduler.get_output_path(result.job_id, "stdout")
+        assert stdout_path is None
+
+    def test_generate_script_with_modules(self, temp_dir):
+        """Test that generated script includes module commands."""
+        scheduler = LocalScheduler()
+        job = Job(
+            command="echo hello",
+            modules=["python/3.11", "gcc/12.2"],
+            modules_path=["/opt/modulefiles"],
+            workdir=temp_dir,
+        )
+
+        script = scheduler.generate_script(job)
+
+        assert "module use /opt/modulefiles" in script
+        assert "module load python/3.11" in script
+        assert "module load gcc/12.2" in script

@@ -6,31 +6,12 @@ import os
 import subprocess
 import tempfile
 import uuid
+import xml.etree.ElementTree as ET
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from hpc_runner.core.config import get_config
-
-
-def get_script_dir() -> Path:
-    """Get directory for temporary job scripts.
-
-    Uses HPC_SCRIPT_DIR environment variable if set, otherwise
-    defaults to ~/.cache/hpc-runner/scripts/.
-
-    Returns:
-        Path to script directory (created if needed).
-    """
-    if env_dir := os.environ.get("HPC_SCRIPT_DIR"):
-        script_dir = Path(env_dir)
-    else:
-        script_dir = Path.home() / ".cache" / "hpc-runner" / "scripts"
-
-    script_dir.mkdir(parents=True, exist_ok=True)
-    return script_dir
-
-
 from hpc_runner.core.job_info import JobInfo
 from hpc_runner.core.result import ArrayJobResult, JobResult, JobStatus
 from hpc_runner.schedulers.base import BaseScheduler
@@ -64,6 +45,24 @@ if TYPE_CHECKING:
     from hpc_runner.core.job_array import JobArray
 
 
+def get_script_dir() -> Path:
+    """Get directory for temporary job scripts.
+
+    Uses HPC_SCRIPT_DIR environment variable if set, otherwise
+    defaults to ~/.cache/hpc-runner/scripts/.
+
+    Returns:
+        Path to script directory (created if needed).
+    """
+    if env_dir := os.environ.get("HPC_SCRIPT_DIR"):
+        script_dir = Path(env_dir)
+    else:
+        script_dir = Path.home() / ".cache" / "hpc-runner" / "scripts"
+
+    script_dir.mkdir(parents=True, exist_ok=True)
+    return script_dir
+
+
 class SGEScheduler(BaseScheduler):
     """Sun Grid Engine scheduler implementation."""
 
@@ -80,7 +79,7 @@ class SGEScheduler(BaseScheduler):
         self.time_resource = sge_config.get("time_resource", "h_rt")
 
         # Module handling config
-        self.purge_modules = sge_config.get("purge_modules", False)
+        self.purge_modules = sge_config.get("purge_modules", True)
         self.silent_modules = sge_config.get("silent_modules", False)
         self.module_init_script = sge_config.get("module_init_script", "")
 
@@ -119,7 +118,7 @@ class SGEScheduler(BaseScheduler):
 
     def generate_script(
         self,
-        job: "Job",
+        job: Job,
         array_range: str | None = None,
         keep_script: bool = False,
         script_path: str | None = None,
@@ -142,7 +141,7 @@ class SGEScheduler(BaseScheduler):
             keep_script=keep_script,
         )
 
-    def _build_directives(self, job: "Job", array_range: str | None = None) -> list[str]:
+    def _build_directives(self, job: Job, array_range: str | None = None) -> list[str]:
         """Build complete list of #$ directives for the job.
 
         Uses the rendering protocol from BaseScheduler, then adds
@@ -182,7 +181,7 @@ class SGEScheduler(BaseScheduler):
 
         return directives
 
-    def _build_dependency_string(self, job: "Job") -> str | None:
+    def _build_dependency_string(self, job: Job) -> str | None:
         """Build SGE dependency string from job dependencies."""
         # String-based dependency from CLI
         if job.dependency:
@@ -200,7 +199,7 @@ class SGEScheduler(BaseScheduler):
     # Command Building
     # =========================================================================
 
-    def build_submit_command(self, job: "Job") -> list[str]:
+    def build_submit_command(self, job: Job) -> list[str]:
         """Build qsub command line."""
         cmd = ["qsub"]
         cmd.extend(self.render_args(job))
@@ -208,7 +207,7 @@ class SGEScheduler(BaseScheduler):
         cmd.extend(job.sge_args)
         return cmd
 
-    def build_interactive_command(self, job: "Job") -> list[str]:
+    def build_interactive_command(self, job: Job) -> list[str]:
         """Build qrsh command for interactive jobs.
 
         Note: qrsh supports a subset of qsub options. Notably:
@@ -242,9 +241,7 @@ class SGEScheduler(BaseScheduler):
     # Job Submission
     # =========================================================================
 
-    def submit(
-        self, job: "Job", interactive: bool = False, keep_script: bool = False
-    ) -> JobResult:
+    def submit(self, job: Job, interactive: bool = False, keep_script: bool = False) -> JobResult:
         """Submit a job to SGE.
 
         Args:
@@ -257,7 +254,7 @@ class SGEScheduler(BaseScheduler):
             return self._submit_interactive(job, keep_script=keep_script)
         return self._submit_batch(job, keep_script=keep_script)
 
-    def _submit_batch(self, job: "Job", keep_script: bool = False) -> JobResult:
+    def _submit_batch(self, job: Job, keep_script: bool = False) -> JobResult:
         """Submit via qsub."""
         # Determine script path first (needed for self-deletion in template)
         script_dir = get_script_dir()
@@ -265,15 +262,14 @@ class SGEScheduler(BaseScheduler):
         script_path = script_dir / script_name
 
         # Generate script with cleanup instruction
-        script = self.generate_script(
-            job, keep_script=keep_script, script_path=str(script_path)
-        )
+        script = self.generate_script(job, keep_script=keep_script, script_path=str(script_path))
 
         script_path.write_text(script)
         script_path.chmod(0o755)
 
         if keep_script:
             import sys
+
             print(f"Script saved: {script_path}", file=sys.stderr)
 
         try:
@@ -296,7 +292,7 @@ class SGEScheduler(BaseScheduler):
             if not keep_script:
                 script_path.unlink(missing_ok=True)
 
-    def _submit_interactive(self, job: "Job", keep_script: bool = False) -> JobResult:
+    def _submit_interactive(self, job: Job, keep_script: bool = False) -> JobResult:
         """Submit via qrsh for interactive execution.
 
         Creates a wrapper script with full environment setup (modules, venv, etc.)
@@ -312,9 +308,7 @@ class SGEScheduler(BaseScheduler):
         script_path = script_dir / script_name
 
         # Generate wrapper script with the actual path (for self-deletion)
-        script = self._generate_interactive_script(
-            job, str(script_path), keep_script=keep_script
-        )
+        script = self._generate_interactive_script(job, str(script_path), keep_script=keep_script)
 
         # Write script to shared filesystem
         script_path.write_text(script)
@@ -323,6 +317,7 @@ class SGEScheduler(BaseScheduler):
         if keep_script:
             # Print script path for debugging
             import sys
+
             print(f"Script saved: {script_path}", file=sys.stderr)
 
         # Build qrsh command with script path
@@ -343,7 +338,7 @@ class SGEScheduler(BaseScheduler):
         )
 
     def _generate_interactive_script(
-        self, job: "Job", script_path: str, keep_script: bool = False
+        self, job: Job, script_path: str, keep_script: bool = False
     ) -> str:
         """Generate wrapper script for interactive jobs."""
         return render_template(
@@ -354,7 +349,7 @@ class SGEScheduler(BaseScheduler):
             keep_script=keep_script,
         )
 
-    def _build_qrsh_command(self, job: "Job", script_path: str) -> list[str]:
+    def _build_qrsh_command(self, job: Job, script_path: str) -> list[str]:
         """Build qrsh command to run wrapper script."""
         cmd = ["qrsh"]
 
@@ -376,13 +371,11 @@ class SGEScheduler(BaseScheduler):
 
         return cmd
 
-    def submit_array(self, array: "JobArray") -> ArrayJobResult:
+    def submit_array(self, array: JobArray) -> ArrayJobResult:
         """Submit array job."""
         script = self.generate_script(array.job, array_range=array.range_str)
 
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".sh", delete=False, prefix="hpc_"
-        ) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".sh", delete=False, prefix="hpc_") as f:
             f.write(script)
             script_path = f.name
 
@@ -636,17 +629,19 @@ class SGEScheduler(BaseScheduler):
         if basic_info:
             # Merge detailed info with basic info
             if job_data.get("stdout_path"):
-                basic_info.stdout_path = job_data["stdout_path"]
+                basic_info.stdout_path = cast(Path, job_data["stdout_path"])
             if job_data.get("stderr_path"):
-                basic_info.stderr_path = job_data["stderr_path"]
+                basic_info.stderr_path = cast(Path, job_data["stderr_path"])
             if job_data.get("node"):
-                basic_info.node = job_data["node"]
+                basic_info.node = cast(str, job_data["node"])
 
             # Always use timing from detailed qstat -j output (more reliable)
             if job_data.get("submit_time"):
-                basic_info.submit_time = datetime.fromtimestamp(job_data["submit_time"])
+                ts = cast(float, job_data["submit_time"])
+                basic_info.submit_time = datetime.fromtimestamp(ts)
             if job_data.get("start_time"):
-                basic_info.start_time = datetime.fromtimestamp(job_data["start_time"])
+                ts = cast(float, job_data["start_time"])
+                basic_info.start_time = datetime.fromtimestamp(ts)
                 # Calculate runtime if running
                 if basic_info.status == JobStatus.RUNNING:
                     basic_info.runtime = datetime.now() - basic_info.start_time
@@ -656,19 +651,19 @@ class SGEScheduler(BaseScheduler):
             # Build from scratch using qstat -j data
             job_info = JobInfo(
                 job_id=job_id,
-                name=job_data.get("name", job_id),
-                user=job_data.get("user", "unknown"),
-                status=job_data.get("status", JobStatus.UNKNOWN),
-                queue=job_data.get("queue"),
-                stdout_path=job_data.get("stdout_path"),
-                stderr_path=job_data.get("stderr_path"),
-                node=job_data.get("node"),
+                name=cast(str, job_data.get("name", job_id)),
+                user=cast(str, job_data.get("user", "unknown")),
+                status=cast(JobStatus, job_data.get("status", JobStatus.UNKNOWN)),
+                queue=cast("str | None", job_data.get("queue")),
+                stdout_path=cast("Path | None", job_data.get("stdout_path")),
+                stderr_path=cast("Path | None", job_data.get("stderr_path")),
+                node=cast("str | None", job_data.get("node")),
             )
             # Add timing info
             if job_data.get("submit_time"):
-                job_info.submit_time = datetime.fromtimestamp(job_data["submit_time"])
+                job_info.submit_time = datetime.fromtimestamp(cast(float, job_data["submit_time"]))
             if job_data.get("start_time"):
-                job_info.start_time = datetime.fromtimestamp(job_data["start_time"])
+                job_info.start_time = datetime.fromtimestamp(cast(float, job_data["start_time"]))
                 if job_info.status == JobStatus.RUNNING:
                     job_info.runtime = datetime.now() - job_info.start_time
             return job_info, extra_details
@@ -684,7 +679,6 @@ class SGEScheduler(BaseScheduler):
         - Dependencies: list of job IDs
         - Other: project, department
         """
-        import xml.etree.ElementTree as ET
 
         data: dict[str, object] = {}
 
@@ -748,9 +742,7 @@ class SGEScheduler(BaseScheduler):
                 pass
 
         # Start time (for running jobs) - in JB_ja_tasks/ulong_sublist/JAT_start_time
-        task_start_text = job_info.findtext(
-            ".//JB_ja_tasks/ulong_sublist/JAT_start_time"
-        )
+        task_start_text = job_info.findtext(".//JB_ja_tasks/ulong_sublist/JAT_start_time")
         if task_start_text:
             try:
                 data["start_time"] = int(task_start_text)
@@ -850,9 +842,8 @@ class SGEScheduler(BaseScheduler):
 
         return data
 
-    def _strip_xml_namespaces(self, root: "ET.Element") -> None:
+    def _strip_xml_namespaces(self, root: ET.Element) -> None:
         """Strip namespaces so ElementTree can match tag names directly."""
-        import xml.etree.ElementTree as ET
 
         for elem in root.iter():
             if isinstance(elem.tag, str) and "}" in elem.tag:
@@ -863,9 +854,8 @@ class SGEScheduler(BaseScheduler):
         cleaned = "".join(ch if 32 <= ord(ch) < 127 else " " for ch in value)
         return " ".join(cleaned.split())
 
-    def _parse_xml_root(self, xml_output: str) -> "ET.Element | None":
+    def _parse_xml_root(self, xml_output: str) -> ET.Element | None:
         """Parse XML output, tolerating leading/trailing non-XML noise."""
-        import xml.etree.ElementTree as ET
 
         try:
             return ET.fromstring(xml_output)

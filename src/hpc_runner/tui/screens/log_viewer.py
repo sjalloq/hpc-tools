@@ -11,7 +11,6 @@ from textual.containers import Vertical
 from textual.screen import ModalScreen
 from textual.widgets import Static, TextArea
 
-
 # Maximum lines to read from large files
 MAX_LINES = 5000
 
@@ -133,8 +132,7 @@ class LogViewerScreen(ModalScreen[None]):
                     chunk_lines = chunk.split(b"\n")
                     remaining = chunk_lines[0]
                     lines = [
-                        line.decode("utf-8", errors="replace")
-                        for line in chunk_lines[1:]
+                        line.decode("utf-8", errors="replace") for line in chunk_lines[1:]
                     ] + lines
 
                 # Add any remaining content

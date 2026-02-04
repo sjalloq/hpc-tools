@@ -31,7 +31,6 @@ from hpc_runner.tui.components import (
 from hpc_runner.tui.providers import JobProvider
 from hpc_runner.tui.screens import ConfirmScreen, JobDetailsScreen, LogViewerScreen
 
-
 # Custom theme inspired by Nord color palette for a muted, professional look.
 # NOTE: We intentionally do NOT set 'background' or 'foreground' here.
 # This allows the terminal's own colors to show through (transparency).
@@ -110,9 +109,7 @@ class HpcMonitorApp(App[None]):
                     yield JobTable(id="active-jobs")
                     yield DetailPanel(id="detail-panel")
             with TabPane("Completed", id="completed-tab"):
-                yield Static(
-                    "Completed jobs will appear here", id="completed-placeholder"
-                )
+                yield Static("Completed jobs will appear here", id="completed-placeholder")
         # Custom footer for ANSI transparency (Textual's Footer doesn't respect it)
         with HorizontalGroup(id="footer"):
             yield Static(" q", classes="footer-key")
@@ -167,10 +164,10 @@ class HpcMonitorApp(App[None]):
         """Quit the application."""
         self.exit()
 
-    def action_screenshot(self) -> None:
+    def action_screenshot(self, filename: str | None = None, path: str | None = None) -> None:
         """Save a screenshot to the current directory."""
-        path = self.save_screenshot(path="./")
-        self.notify(f"Screenshot saved: {path}", timeout=3)
+        result = self.save_screenshot(path=path or "./", filename=filename)
+        self.notify(f"Screenshot saved: {result}", timeout=3)
 
     def action_help(self) -> None:
         """Show help popup."""
@@ -206,7 +203,7 @@ class HpcMonitorApp(App[None]):
         Uses run_worker to run as a background task without blocking UI.
         The exclusive=True ensures only one refresh runs at a time.
         """
-        self.run_worker(self._fetch_and_update_jobs, exclusive=True)
+        self.run_worker(self._fetch_and_update_jobs, exclusive=True)  # type: ignore[arg-type]
 
     async def _fetch_and_update_jobs(self) -> None:
         """Async coroutine to fetch jobs and update the table."""
@@ -237,10 +234,7 @@ class HpcMonitorApp(App[None]):
 
         # Filter by status
         if self._status_filter:
-            filtered = [
-                j for j in filtered
-                if j.status.name.lower() == self._status_filter.lower()
-            ]
+            filtered = [j for j in filtered if j.status.name.lower() == self._status_filter.lower()]
 
         # Filter by queue
         if self._queue_filter:
@@ -250,8 +244,7 @@ class HpcMonitorApp(App[None]):
         if self._search_filter:
             search = self._search_filter.lower()
             filtered = [
-                j for j in filtered
-                if search in j.name.lower() or search in j.job_id.lower()
+                j for j in filtered if search in j.name.lower() or search in j.job_id.lower()
             ]
 
         # Update table
@@ -301,9 +294,7 @@ class HpcMonitorApp(App[None]):
         """Focus the search input."""
         self.query_one(FilterStatusLine).focus_search()
 
-    def on_filter_panel_filter_changed(
-        self, event: FilterPanel.FilterChanged
-    ) -> None:
+    def on_filter_panel_filter_changed(self, event: FilterPanel.FilterChanged) -> None:
         """Handle filter panel changes (arrow key navigation)."""
         if event.filter_type == "status":
             self._status_filter = event.value
@@ -311,9 +302,7 @@ class HpcMonitorApp(App[None]):
             self._queue_filter = event.value
         self._apply_filters_and_display()
 
-    def on_filter_status_line_search_changed(
-        self, event: FilterStatusLine.SearchChanged
-    ) -> None:
+    def on_filter_status_line_search_changed(self, event: FilterStatusLine.SearchChanged) -> None:
         """Handle inline search changes."""
         self._search_filter = event.value
         self._apply_filters_and_display()
@@ -325,6 +314,8 @@ class HpcMonitorApp(App[None]):
         """
         # Start with basic info from the event
         job_info = event.job_info
+        if job_info is None:
+            return
         self._selected_job_extra = {}
         self._last_detail_error: str | None = None
 
@@ -394,17 +385,14 @@ class HpcMonitorApp(App[None]):
         """Handle request to cancel a job."""
         job = event.job
 
-        def handle_confirm(confirmed: bool) -> None:
+        def handle_confirm(confirmed: bool | None) -> None:
             """Handle confirmation result and refocus table."""
             if confirmed:
                 self._do_cancel_job(job)
             self.query_one("#active-jobs", JobTable).focus()
 
         # Format job details for confirmation dialog
-        message = (
-            f"[bold]Job ID:[/]  {job.job_id}\n"
-            f"[bold]Name:[/]    {job.name}"
-        )
+        message = f"[bold]Job ID:[/]  {job.job_id}\n[bold]Name:[/]    {job.name}"
         self.push_screen(
             ConfirmScreen(
                 message=message,
@@ -423,6 +411,7 @@ class HpcMonitorApp(App[None]):
         try:
             # Run cancel in thread pool to avoid blocking
             import asyncio
+
             loop = asyncio.get_event_loop()
             await loop.run_in_executor(
                 None,

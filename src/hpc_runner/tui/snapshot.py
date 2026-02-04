@@ -11,10 +11,12 @@ import asyncio
 import sys
 from pathlib import Path
 
+from textual.color import Color
+
 from .app import HpcMonitorApp
 
 
-def _is_transparent(color) -> bool:
+def _is_transparent(color: Color | None) -> bool:
     """Check if a color is transparent."""
     if color is None:
         return True
@@ -25,14 +27,14 @@ def _is_transparent(color) -> bool:
     return False
 
 
-def _color_hex(color) -> str:
+def _color_hex(color: Color | None) -> str:
     """Convert color to hex string for display."""
     if color is None:
         return "None"
     if hasattr(color, "ansi") and color.ansi == -1:
         return "ANSI_DEFAULT (transparent)"
     if color.a == 0:
-        return f"transparent (a=0)"
+        return "transparent (a=0)"
     return f"#{color.r:02x}{color.g:02x}{color.b:02x}"
 
 
@@ -43,7 +45,7 @@ async def capture_and_review() -> bool:
         True if all checks pass, False otherwise.
     """
     from textual.containers import HorizontalGroup
-    from textual.widgets import Tab, Header, TabbedContent, Static
+    from textual.widgets import Header, Tab, TabbedContent
 
     app = HpcMonitorApp()
     all_passed = True
@@ -143,7 +145,7 @@ async def capture_and_review() -> bool:
     return all_passed
 
 
-def main():
+def main() -> None:
     """Run snapshot review."""
     passed = asyncio.run(capture_and_review())
     sys.exit(0 if passed else 1)

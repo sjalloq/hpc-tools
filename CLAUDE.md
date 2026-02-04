@@ -2,6 +2,46 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Project Overview
+
+Provides a front end for submitting jobs to an HPC cluster using SGE, Slurm, LSF, etc.  The aim is to enable two things:
+
+1. Abstract away the intricacies of scheduler CLI args and allow the user to submit jobs based on tool name or job type.
+2. Use Environment Modules to construct a clean environment for a job and avoid the 'works for me' problem.
+
+### Job/Type Abstraction
+
+Usage model:
+
+```bash
+# Launch an extern on the cluster via SGE:
+qsub -q <queue> -N <job_name> -cwd -V -l <resources> xterm
+
+# Launch an xterm on the cluster via hpc-runner:
+hpc run xterm
+
+# Or launch a script that uses a particular tool using a job type:
+hpc run --type xcelium run_sim.sh
+```
+
+Configuration file:
+
+* use a TOML based config file to define defaults for jobs
+* define tool flows and specify all scheduler arguments
+    * tool flows are detected via the first argument passed to 'hpc run'
+* definine job types for flows that don't pass the tool
+    * when using makefiles or scripts, the runner can't extract the tool name from the command line
+
+### Consistent Environment
+
+One of the common pitfalls of HPC flows is that what works for one user doesn't always work for another.  Using
+Environment Modules means that common tools flows use a fixed tool version for all users.
+
+To accomplish this, the scheduler must purge all modules as part of its setup script and load any modules defined 
+for the flow.  Each tool or type defined in the configuration file must also define the set of module files that must
+be loaded.
+
+
 ## Build & Development Commands
 
 ```bash

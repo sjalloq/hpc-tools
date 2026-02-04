@@ -9,6 +9,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from hpc_runner.core.config import get_config
 from hpc_runner.core.exceptions import AccountingNotAvailable, JobNotFoundError
 from hpc_runner.core.job_info import JobInfo
 from hpc_runner.core.result import ArrayJobResult, JobResult, JobStatus
@@ -30,15 +31,24 @@ class LocalScheduler(BaseScheduler):
     _exit_codes: dict[str, int] = {}
     _output_paths: dict[str, dict[str, Path]] = {}
 
-    def submit(
-        self, job: "Job", interactive: bool = False, keep_script: bool = False
-    ) -> JobResult:
+    def __init__(self) -> None:
+        """Initialize local scheduler with config-driven settings."""
+        config = get_config()
+        local_config = config.get_scheduler_config("local")
+
+        self.purge_modules = local_config.get("purge_modules", True)
+        self.silent_modules = local_config.get("silent_modules", False)
+        self.module_init_script = local_config.get("module_init_script", "")
+
+    def submit(self, job: Job, interactive: bool = False, keep_script: bool = False) -> JobResult:
         """Run job as local subprocess."""
         LocalScheduler._job_counter += 1
         job_id = f"local_{LocalScheduler._job_counter}_{datetime.now().strftime('%Y%m%d%H%M%S')}"
 
-        # Set up environment with modules (modules not actually loaded locally)
+        # Set up environment
         env = os.environ.copy() if job.inherit_env else {}
+        if job.env_vars:
+            env.update(job.env_vars)
 
         # Generate and write script
         script = self.generate_script(job)
@@ -48,26 +58,68 @@ class LocalScheduler(BaseScheduler):
 
         workdir = Path(job.workdir) if job.workdir else Path.cwd()
 
-        # Determine output paths
-        stdout_file = job.stdout or f"{job.name}.{job_id}.out"
-        stdout_path = workdir / stdout_file
-        if job.merge_output:
-            stderr_path = stdout_path  # Merge stderr into stdout
-        else:
-            stderr_file = job.stderr or f"{job.name}.{job_id}.err"
-            stderr_path = workdir / stderr_file
+        # Passthrough mode: when no stdout/stderr specified, let output flow to console
+        passthrough = job.stdout is None and job.stderr is None
 
-        # Store output paths
-        LocalScheduler._output_paths[job_id] = {
-            "stdout": stdout_path,
-            "stderr": stderr_path,
-        }
+        if not passthrough:
+            # Determine output paths
+            stdout_file = job.stdout or f"{job.name}.{job_id}.out"
+            stdout_path = workdir / stdout_file
+            if job.merge_output:
+                stderr_path = stdout_path  # Merge stderr into stdout
+            else:
+                stderr_file = job.stderr or f"{job.name}.{job_id}.err"
+                stderr_path = workdir / stderr_file
+
+            # Store output paths
+            LocalScheduler._output_paths[job_id] = {
+                "stdout": stdout_path,
+                "stderr": stderr_path,
+            }
 
         if interactive:
-            # Blocking execution
-            with open(stdout_path, "w") as stdout_f:
+            if passthrough:
+                # Let output flow to console
+                result = subprocess.run(
+                    [str(script_path)],
+                    cwd=workdir,
+                    env=env,
+                )
+            else:
+                # Blocking execution with file output
+                with open(stdout_path, "w") as stdout_f:
+                    if job.merge_output:
+                        result = subprocess.run(
+                            [str(script_path)],
+                            cwd=workdir,
+                            env=env,
+                            stdout=stdout_f,
+                            stderr=subprocess.STDOUT,
+                        )
+                    else:
+                        with open(stderr_path, "w") as stderr_f:
+                            result = subprocess.run(
+                                [str(script_path)],
+                                cwd=workdir,
+                                env=env,
+                                stdout=stdout_f,
+                                stderr=stderr_f,
+                            )
+            LocalScheduler._exit_codes[job_id] = result.returncode
+            script_path.unlink(missing_ok=True)
+        else:
+            if passthrough:
+                # Background execution with console passthrough
+                proc = subprocess.Popen(
+                    [str(script_path)],
+                    cwd=workdir,
+                    env=env,
+                )
+            else:
+                # Background execution with file output
+                stdout_f = open(stdout_path, "w")
                 if job.merge_output:
-                    result = subprocess.run(
+                    proc = subprocess.Popen(
                         [str(script_path)],
                         cwd=workdir,
                         env=env,
@@ -75,46 +127,24 @@ class LocalScheduler(BaseScheduler):
                         stderr=subprocess.STDOUT,
                     )
                 else:
-                    with open(stderr_path, "w") as stderr_f:
-                        result = subprocess.run(
-                            [str(script_path)],
-                            cwd=workdir,
-                            env=env,
-                            stdout=stdout_f,
-                            stderr=stderr_f,
-                        )
-            LocalScheduler._exit_codes[job_id] = result.returncode
-            script_path.unlink(missing_ok=True)
-        else:
-            # Background execution
-            stdout_f = open(stdout_path, "w")
-            if job.merge_output:
-                proc = subprocess.Popen(
-                    [str(script_path)],
-                    cwd=workdir,
-                    env=env,
-                    stdout=stdout_f,
-                    stderr=subprocess.STDOUT,
-                )
-            else:
-                stderr_f = open(stderr_path, "w")
-                proc = subprocess.Popen(
-                    [str(script_path)],
-                    cwd=workdir,
-                    env=env,
-                    stdout=stdout_f,
-                    stderr=stderr_f,
-                )
+                    stderr_f = open(stderr_path, "w")
+                    proc = subprocess.Popen(
+                        [str(script_path)],
+                        cwd=workdir,
+                        env=env,
+                        stdout=stdout_f,
+                        stderr=stderr_f,
+                    )
+                proc._stdout_file = stdout_f  # type: ignore[attr-defined]
+                if not job.merge_output:
+                    proc._stderr_file = stderr_f  # type: ignore[attr-defined]
             LocalScheduler._processes[job_id] = proc
             # Store script path for cleanup
             proc._script_path = script_path  # type: ignore[attr-defined]
-            proc._stdout_file = stdout_f  # type: ignore[attr-defined]
-            if not job.merge_output:
-                proc._stderr_file = stderr_f  # type: ignore[attr-defined]
 
         return JobResult(job_id=job_id, scheduler=self, job=job)
 
-    def submit_array(self, array: "JobArray") -> ArrayJobResult:
+    def submit_array(self, array: JobArray) -> ArrayJobResult:
         """Simulate array job by submitting multiple jobs."""
         # For local scheduler, we just run one job
         # and return an ArrayJobResult pointing to it
@@ -134,9 +164,11 @@ class LocalScheduler(BaseScheduler):
 
         return ArrayJobResult(base_job_id=base_job_id, scheduler=self, array=array)
 
-    def _submit_array_task(self, job: "Job", job_id: str, index: int) -> None:
+    def _submit_array_task(self, job: Job, job_id: str, index: int) -> None:
         """Submit a single array task."""
         env = os.environ.copy() if job.inherit_env else {}
+        if job.env_vars:
+            env.update(job.env_vars)
         env["HPC_ARRAY_TASK_ID"] = str(index)
 
         script = self.generate_script(job)
@@ -175,7 +207,9 @@ class LocalScheduler(BaseScheduler):
         """Get job status."""
         if job_id in LocalScheduler._exit_codes:
             # Already completed
-            return JobStatus.COMPLETED if LocalScheduler._exit_codes[job_id] == 0 else JobStatus.FAILED
+            if LocalScheduler._exit_codes[job_id] == 0:
+                return JobStatus.COMPLETED
+            return JobStatus.FAILED
 
         if job_id not in LocalScheduler._processes:
             return JobStatus.UNKNOWN
@@ -198,12 +232,12 @@ class LocalScheduler(BaseScheduler):
             proc = LocalScheduler._processes[job_id]
             # Close file handles
             if hasattr(proc, "_stdout_file"):
-                proc._stdout_file.close()  # type: ignore[attr-defined]
+                proc._stdout_file.close()
             if hasattr(proc, "_stderr_file"):
-                proc._stderr_file.close()  # type: ignore[attr-defined]
+                proc._stderr_file.close()
             # Remove script
             if hasattr(proc, "_script_path"):
-                proc._script_path.unlink(missing_ok=True)  # type: ignore[attr-defined]
+                proc._script_path.unlink(missing_ok=True)
             del LocalScheduler._processes[job_id]
 
     def get_exit_code(self, job_id: str) -> int | None:
@@ -228,7 +262,7 @@ class LocalScheduler(BaseScheduler):
             return LocalScheduler._output_paths[job_id].get(stream)
         return None
 
-    def generate_script(self, job: "Job", array_range: str | None = None) -> str:
+    def generate_script(self, job: Job, array_range: str | None = None) -> str:
         """Generate local execution script."""
         return render_template(
             "local/templates/job.sh.j2",
@@ -236,13 +270,15 @@ class LocalScheduler(BaseScheduler):
             scheduler=self,
         )
 
-    def build_submit_command(self, job: "Job") -> list[str]:
+    def build_submit_command(self, job: Job) -> list[str]:
         """Build command - for local, just bash."""
-        return ["bash", "-c", job.command if isinstance(job.command, str) else " ".join(job.command)]
+        cmd = job.command if isinstance(job.command, str) else " ".join(job.command)
+        return ["bash", "-c", cmd]
 
-    def build_interactive_command(self, job: "Job") -> list[str]:
+    def build_interactive_command(self, job: Job) -> list[str]:
         """Build interactive command - for local, just bash."""
-        return ["bash", "-c", job.command if isinstance(job.command, str) else " ".join(job.command)]
+        cmd = job.command if isinstance(job.command, str) else " ".join(job.command)
+        return ["bash", "-c", cmd]
 
     # -------------------------------------------------------------------------
     # TUI Monitor API (stubs for local scheduler)
@@ -321,8 +357,10 @@ class LocalScheduler(BaseScheduler):
         if job_id in LocalScheduler._processes:
             proc = LocalScheduler._processes[job_id]
             poll = proc.poll()
-            status = JobStatus.RUNNING if poll is None else (
-                JobStatus.COMPLETED if poll == 0 else JobStatus.FAILED
+            status = (
+                JobStatus.RUNNING
+                if poll is None
+                else (JobStatus.COMPLETED if poll == 0 else JobStatus.FAILED)
             )
             job_info = JobInfo(
                 job_id=job_id,

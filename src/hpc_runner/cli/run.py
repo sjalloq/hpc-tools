@@ -11,6 +11,7 @@ from hpc_runner.cli.main import Context, pass_context
 
 if TYPE_CHECKING:
     from hpc_runner.core.job import Job
+    from hpc_runner.schedulers.base import BaseScheduler
 
 console = Console()
 
@@ -37,13 +38,18 @@ console = Console()
 @click.option("--output", help="Stdout file path pattern")
 @click.option("--array", help="Array job specification (e.g., 1-100)")
 @click.option("--depend", help="Job dependency specification")
-@click.option("--inherit-env/--no-inherit-env", "inherit_env", default=True, help="Inherit environment variables")
+@click.option(
+    "--inherit-env/--no-inherit-env",
+    "inherit_env",
+    default=True,
+    help="Inherit environment variables",
+)
 @click.option("--interactive", is_flag=True, help="Run interactively (srun/qrsh)")
 @click.option("--local", is_flag=True, help="Run locally (no scheduler)")
 @click.option("--dry-run", "dry_run", is_flag=True, help="Show what would be submitted")
 @click.option("--wait", is_flag=True, help="Wait for job completion")
 @click.option("--keep-script", "keep_script", is_flag=True, help="Keep job script for debugging")
-@pass_context
+@pass_context  # type: ignore[has-type, untyped-decorator]
 def run(
     ctx: Context,
     args: tuple[str, ...],
@@ -233,7 +239,10 @@ def _parse_args(args: tuple[str, ...]) -> tuple[list[str], list[str]]:
 
 
 def _show_dry_run(
-    job: "Job", scheduler, scheduler_args: list[str], interactive: bool = False
+    job: "Job",
+    scheduler: "BaseScheduler",
+    scheduler_args: list[str],
+    interactive: bool = False,
 ) -> None:
     """Display what would be submitted."""
     mode = "interactive" if interactive else "batch"
@@ -260,7 +269,13 @@ def _show_dry_run(
     console.print(syntax)
 
 
-def _handle_array_job(job, array_spec: str, scheduler, dry_run: bool, verbose: bool) -> None:
+def _handle_array_job(
+    job: "Job",
+    array_spec: str,
+    scheduler: "BaseScheduler",
+    dry_run: bool,
+    verbose: bool,
+) -> None:
     """Handle array job submission."""
     from hpc_runner.core.job_array import JobArray
 

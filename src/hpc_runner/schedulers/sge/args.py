@@ -7,7 +7,7 @@ both as a script directive (#$ ...) and as command-line arguments.
 from hpc_runner.core.descriptors import SchedulerArg
 
 
-class SGEArg(SchedulerArg):
+class SGEArg(SchedulerArg[str]):
     """Base class for SGE arguments.
 
     SGE uses:
@@ -15,12 +15,12 @@ class SGEArg(SchedulerArg):
     - CLI args: -flag value
     """
 
-    def to_args(self, value) -> list[str]:
+    def to_args(self, value: str | None) -> list[str]:
         if value is None:
             return []
         return [f"-{self.flag}", str(value)]
 
-    def to_directive(self, value) -> str | None:
+    def to_directive(self, value: str | None) -> str | None:
         if value is None:
             return None
         return f"#$ -{self.flag} {value}"
@@ -34,42 +34,42 @@ class SGEArg(SchedulerArg):
 class SGEJobNameArg(SGEArg):
     """Job name: -N name"""
 
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__("N", doc="Job name")
 
 
 class SGEQueueArg(SGEArg):
     """Queue selection: -q queue_name"""
 
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__("q", doc="Queue/partition name")
 
 
 class SGEOutputArg(SGEArg):
     """Stdout path: -o path"""
 
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__("o", doc="Stdout file path")
 
 
 class SGEErrorArg(SGEArg):
     """Stderr path: -e path"""
 
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__("e", doc="Stderr file path")
 
 
 class SGEPriorityArg(SGEArg):
     """Job priority: -p priority"""
 
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__("p", doc="Job priority (-1023 to 1024)")
 
 
 class SGEShellArg(SGEArg):
     """Shell selection: -S /path/to/shell"""
 
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__("S", doc="Shell path")
 
 
@@ -81,7 +81,7 @@ class SGEShellArg(SGEArg):
 class SGECwdArg(SchedulerArg[bool]):
     """Use current working directory: -cwd"""
 
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__("cwd", doc="Execute in current working directory")
 
     def to_args(self, value: bool | None) -> list[str]:
@@ -94,7 +94,7 @@ class SGECwdArg(SchedulerArg[bool]):
 class SGEInheritEnvArg(SchedulerArg[bool]):
     """Inherit environment: -V"""
 
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__("V", doc="Inherit environment variables")
 
     def to_args(self, value: bool | None) -> list[str]:
@@ -107,7 +107,7 @@ class SGEInheritEnvArg(SchedulerArg[bool]):
 class SGEMergeOutputArg(SchedulerArg[bool]):
     """Merge stdout and stderr: -j y"""
 
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__("j", doc="Join stdout and stderr")
 
     def to_args(self, value: bool | None) -> list[str]:
@@ -196,7 +196,7 @@ class SGEArrayArg(SchedulerArg[str]):
     Range formats: 1-100, 1-100:10, 1,2,3,4
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__("t", doc="Array job range")
 
     def to_args(self, value: str | None) -> list[str]:
@@ -218,7 +218,7 @@ class SGEArrayArg(SchedulerArg[str]):
 class SGEHoldArg(SchedulerArg[str]):
     """Job dependency: -hold_jid job_id[,job_id,...]"""
 
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__("hold_jid", doc="Hold until jobs complete")
 
     def to_args(self, value: str | None) -> list[str]:

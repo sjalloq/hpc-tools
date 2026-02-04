@@ -1,8 +1,8 @@
 """SGE output parsing utilities."""
 
 import re
-from datetime import datetime
 import xml.etree.ElementTree as ET
+from datetime import datetime
 from typing import Any
 
 from hpc_runner.core.result import JobStatus
@@ -131,9 +131,9 @@ def parse_qstat_plain(output: str) -> dict[str, Any]:
     """Parse plain qstat output.
 
     Format:
-    job-ID  prior   name       user         state submit/start at     queue                          slots ja-task-ID
-    --------------------------------------------------------------------------------
-    12345   0.55500 myjob      user         r     01/01/2024 10:00:00 all.q@node1                    1
+    job-ID  prior   name       user         state submit/start at     queue  slots ja-task-ID
+    --------------------------------------------------------------------------
+    12345   0.55500 myjob      user         r     01/01/2024 10:00:00 all.q@node1  1
     """
     jobs: dict[str, Any] = {}
 

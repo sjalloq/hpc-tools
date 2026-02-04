@@ -62,7 +62,7 @@ def init(ctx: Context, global_config: bool) -> None:
             return
 
     # Write default config
-    default_config = '''# hpc-runner configuration
+    default_config = """# hpc-runner configuration
 #
 # This file is safe to commit to a project repo (for shared defaults).
 # For a per-user config, run: hpc config init --global
@@ -92,7 +92,7 @@ merge_output = true
 # [types.gpu]
 # queue = "gpu"
 # resources = [{name = "gpu", value = 1}]
-'''
+"""
 
     config_path.write_text(default_config)
     console.print(f"[green]Created {config_path}[/green]")

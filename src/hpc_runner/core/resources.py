@@ -1,5 +1,6 @@
 """Resource abstraction for job resource requests."""
 
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 
 
@@ -39,7 +40,7 @@ class ResourceSet:
                 return r
         return None
 
-    def __iter__(self):
+    def __iter__(self) -> Iterator[Resource]:
         return iter(self.resources)
 
     def __len__(self) -> int:

@@ -2,8 +2,13 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from typing import Any
+
 from textual import events, on
+from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical
+from textual.geometry import Region
 from textual.message import Message
 from textual.widgets import Input, OptionList, Static
 from textual.widgets.option_list import Option
@@ -42,7 +47,7 @@ class HelpPopup(Static, can_focus=True):
     }
     """
 
-    def __init__(self, **kwargs) -> None:
+    def __init__(self, **kwargs: Any) -> None:
         super().__init__(self.HELP_TEXT, **kwargs)
         self.add_class("hidden")
 
@@ -116,8 +121,8 @@ class FilterPanelPopup(OptionList):
         self,
         options: list[tuple[str, str | None]],
         current_index: int = 0,
-        on_select: callable = None,
-        **kwargs,
+        on_select: Callable[[int], None] | None = None,
+        **kwargs: Any,
     ) -> None:
         super().__init__(**kwargs)
         self._panel_options = options
@@ -140,7 +145,7 @@ class FilterPanelPopup(OptionList):
         self,
         options: list[tuple[str, str | None]],
         current_index: int,
-        on_select: callable = None,
+        on_select: Callable[[int], None] | None = None,
     ) -> None:
         """Update options and current selection."""
         self._panel_options = options
@@ -150,7 +155,7 @@ class FilterPanelPopup(OptionList):
         if self.is_mounted:
             self._refresh_options()
 
-    def show_popup(self, region) -> None:
+    def show_popup(self, region: Region) -> None:
         """Show popup positioned relative to parent widget."""
         self.remove_class("hidden")
         self.styles.offset = (region.x, region.y + region.height)
@@ -199,7 +204,7 @@ class FilterPanel(Static, can_focus=True):
         filter_type: str,
         options: list[tuple[str, str | None]],
         title: str = "",
-        **kwargs,
+        **kwargs: Any,
     ) -> None:
         """Initialize filter panel.
 
@@ -296,12 +301,12 @@ class FilterStatusLine(Horizontal):
         ("Held", "held"),
     ]
 
-    def __init__(self, **kwargs) -> None:
+    def __init__(self, **kwargs: Any) -> None:
         super().__init__(id="filter-status", **kwargs)
         self._search: str = ""
         self._queues: list[str] = []
 
-    def compose(self):
+    def compose(self) -> ComposeResult:
         """Create the status line widgets."""
         yield FilterPanel(
             "status",

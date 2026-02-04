@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical
 from textual.screen import ModalScreen
@@ -31,7 +33,7 @@ class ConfirmScreen(ModalScreen[bool]):
         message: str,
         title: str = "Confirm",
         confirm_label: str = "Confirm",
-        **kwargs,
+        **kwargs: Any,
     ) -> None:
         super().__init__(**kwargs)
         self._message = message

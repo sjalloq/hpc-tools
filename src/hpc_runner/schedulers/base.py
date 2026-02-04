@@ -5,7 +5,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from hpc_runner.core.descriptors import SchedulerArg
 
@@ -35,13 +35,13 @@ class BaseScheduler(ABC):
     name: str = ""
 
     # Subclasses populate this in __init__ with config-driven values
-    ARG_RENDERERS: dict[str, SchedulerArg] = {}
+    ARG_RENDERERS: dict[str, SchedulerArg[Any]] = {}
 
     # =========================================================================
     # Rendering Protocol
     # =========================================================================
 
-    def render_directives(self, job: "Job") -> list[str]:
+    def render_directives(self, job: Job) -> list[str]:
         """Render job attributes as script directives.
 
         Iterates over job's renderable attributes and uses ARG_RENDERERS
@@ -66,7 +66,7 @@ class BaseScheduler(ABC):
 
         return directives
 
-    def render_args(self, job: "Job") -> list[str]:
+    def render_args(self, job: Job) -> list[str]:
         """Render job attributes as command-line arguments.
 
         Iterates over job's renderable attributes and uses ARG_RENDERERS
@@ -94,9 +94,7 @@ class BaseScheduler(ABC):
     # =========================================================================
 
     @abstractmethod
-    def submit(
-        self, job: "Job", interactive: bool = False, keep_script: bool = False
-    ) -> "JobResult":
+    def submit(self, job: Job, interactive: bool = False, keep_script: bool = False) -> JobResult:
         """Submit a job to the scheduler.
 
         Args:
@@ -106,7 +104,7 @@ class BaseScheduler(ABC):
         """
 
     @abstractmethod
-    def submit_array(self, array: "JobArray") -> "ArrayJobResult":
+    def submit_array(self, array: JobArray) -> ArrayJobResult:
         """Submit an array job."""
 
     @abstractmethod
@@ -114,7 +112,7 @@ class BaseScheduler(ABC):
         """Cancel a job."""
 
     @abstractmethod
-    def get_status(self, job_id: str) -> "JobStatus":
+    def get_status(self, job_id: str) -> JobStatus:
         """Get job status."""
 
     @abstractmethod
@@ -122,15 +120,15 @@ class BaseScheduler(ABC):
         """Get job exit code."""
 
     @abstractmethod
-    def generate_script(self, job: "Job", array_range: str | None = None) -> str:
+    def generate_script(self, job: Job, array_range: str | None = None) -> str:
         """Generate submission script."""
 
     @abstractmethod
-    def build_submit_command(self, job: "Job") -> list[str]:
+    def build_submit_command(self, job: Job) -> list[str]:
         """Build submission command line."""
 
     @abstractmethod
-    def build_interactive_command(self, job: "Job") -> list[str]:
+    def build_interactive_command(self, job: Job) -> list[str]:
         """Build interactive execution command."""
 
     # =========================================================================
@@ -149,16 +147,16 @@ class BaseScheduler(ABC):
         """
         return None
 
-    def get_scheduler_args(self, job: "Job") -> list[str]:
+    def get_scheduler_args(self, job: Job) -> list[str]:
         """Get scheduler-specific raw args from job."""
         return getattr(job, f"{self.name}_args", [])
 
     def list_active_jobs(
         self,
         user: str | None = None,
-        status: set["JobStatus"] | None = None,
+        status: set[JobStatus] | None = None,
         queue: str | None = None,
-    ) -> list["JobInfo"]:
+    ) -> list[JobInfo]:
         """List active jobs. Override in subclass."""
         return []
 
@@ -170,7 +168,7 @@ class BaseScheduler(ABC):
         exit_code: int | None = None,
         queue: str | None = None,
         limit: int = 100,
-    ) -> list["JobInfo"]:
+    ) -> list[JobInfo]:
         """List completed jobs from accounting. Override in subclass."""
         return []
 
@@ -178,7 +176,7 @@ class BaseScheduler(ABC):
         """Check if job accounting/history is available."""
         return False
 
-    def get_job_details(self, job_id: str) -> tuple["JobInfo", dict[str, object]]:
+    def get_job_details(self, job_id: str) -> tuple[JobInfo, dict[str, object]]:
         """Get detailed information for a single job.
 
         Args:

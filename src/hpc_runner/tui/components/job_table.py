@@ -8,7 +8,7 @@ from hpc_runner.core.job_info import JobInfo
 from hpc_runner.core.result import JobStatus
 
 
-class JobTable(DataTable):
+class JobTable(DataTable[str]):
     """DataTable for displaying HPC jobs.
 
     Displays job information in a tabular format with columns for
@@ -79,7 +79,7 @@ class JobTable(DataTable):
         """Return the width available for columns within the table."""
         content_size = getattr(self, "content_size", None)
         if content_size is not None:
-            return content_size.width
+            return int(content_size.width)
         return self.size.width or self.app.console.size.width
 
     def _calculate_name_width(self, table_width: int) -> int:
@@ -115,7 +115,7 @@ class JobTable(DataTable):
     def _set_name_column_width(self, width: int) -> None:
         """Apply name column width and refresh rows for correct truncation."""
         self._name_col_width = width
-        name_column = self.columns.get("name")
+        name_column = self.columns.get("name")  # type: ignore[call-overload]
         if name_column is not None:
             name_column.width = width
         if self._jobs:
@@ -132,9 +132,7 @@ class JobTable(DataTable):
                 ordered_jobs.append(job)
                 seen.add(job_id)
         if len(ordered_jobs) != len(self._jobs):
-            ordered_jobs.extend(
-                job for job_id, job in self._jobs.items() if job_id not in seen
-            )
+            ordered_jobs.extend(job for job_id, job in self._jobs.items() if job_id not in seen)
         self.update_jobs(ordered_jobs)
 
     def _setup_columns(self) -> None:
@@ -223,9 +221,7 @@ class JobTable(DataTable):
         }
         return status_map.get(status, str(status.name))
 
-    def on_data_table_row_highlighted(
-        self, event: DataTable.RowHighlighted
-    ) -> None:
+    def on_data_table_row_highlighted(self, event: DataTable.RowHighlighted) -> None:
         """Handle row highlight - emit JobSelected message."""
         if event.row_key is not None:
             job_id = str(event.row_key.value)

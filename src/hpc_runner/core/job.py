@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import os
-from typing import TYPE_CHECKING, Any, Iterator
+from collections.abc import Iterator
+from typing import TYPE_CHECKING, Any
 
 from hpc_runner.core.descriptors import JobAttribute
 from hpc_runner.core.resources import ResourceSet
@@ -182,7 +183,7 @@ class Job:
     # Submission API
     # =========================================================================
 
-    def submit(self, scheduler: "BaseScheduler | None" = None) -> "JobResult":
+    def submit(self, scheduler: BaseScheduler | None = None) -> JobResult:
         """Submit the job to a scheduler.
 
         This is the primary programmatic API for job submission.
@@ -216,7 +217,7 @@ class Job:
         tool_or_type: str,
         command: str | None = None,
         **overrides: Any,
-    ) -> "Job":
+    ) -> Job:
         """Create a job from configuration.
 
         Looks up job settings from the config file by tool name or job type,
@@ -309,9 +310,9 @@ class Job:
 
     def after(
         self,
-        *jobs: "JobResult",
+        *jobs: JobResult,
         type: str = "afterok",
-    ) -> "Job":
+    ) -> Job:
         """Add job dependencies.
 
         Args:

@@ -5,7 +5,6 @@ from __future__ import annotations
 import sys
 from typing import Final
 
-
 _GLOBAL_FLAGS: Final[set[str]] = {"--config", "--scheduler", "--verbose", "-h", "--help"}
 
 
@@ -69,4 +68,3 @@ def main() -> None:
 
     global_opts, rest = _split_global_flags(argv)
     cli.main(args=[*global_opts, "run", *rest], prog_name="submit")
-

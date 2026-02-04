@@ -37,7 +37,7 @@ class JobProvider:
         current_user: The current username for filtering.
     """
 
-    def __init__(self, scheduler: "BaseScheduler") -> None:
+    def __init__(self, scheduler: BaseScheduler) -> None:
         """Initialize the job provider.
 
         Args:
@@ -78,9 +78,7 @@ class JobProvider:
             )
             return jobs
         except NotImplementedError:
-            logger.warning(
-                f"Scheduler {self.scheduler.name} does not implement list_active_jobs"
-            )
+            logger.warning(f"Scheduler {self.scheduler.name} does not implement list_active_jobs")
             return []
         except Exception as e:
             logger.error(f"Error fetching active jobs: {e}")
@@ -141,7 +139,7 @@ class JobProvider:
             logger.error(f"Error fetching completed jobs: {e}")
             return []
 
-    async def get_job_details(self, job_id: str) -> JobInfo | None:
+    async def get_job_details(self, job_id: str) -> tuple[JobInfo, dict[str, object]] | None:
         """Get detailed information for a single job.
 
         Args:

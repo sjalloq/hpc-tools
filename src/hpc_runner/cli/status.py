@@ -1,6 +1,5 @@
 """Status command - check job status."""
 
-
 import rich_click as click
 from rich.console import Console
 from rich.table import Table
@@ -14,7 +13,7 @@ console = Console()
 @click.argument("job_id", required=False)
 @click.option("--all", "all_users", is_flag=True, help="Show all users' jobs")
 @click.option("--watch", is_flag=True, help="Watch mode (refresh periodically)")
-@pass_context
+@pass_context  # type: ignore[has-type, untyped-decorator]
 def status(
     ctx: Context,
     job_id: str | None,

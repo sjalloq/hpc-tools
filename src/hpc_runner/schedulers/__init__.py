@@ -18,7 +18,7 @@ _SCHEDULERS: dict[str, str] = {
 }
 
 
-def get_scheduler(name: str | None = None) -> "BaseScheduler":
+def get_scheduler(name: str | None = None) -> BaseScheduler:
     """Get scheduler instance.
 
     Args:
@@ -39,7 +39,7 @@ def get_scheduler(name: str | None = None) -> "BaseScheduler":
     module = importlib.import_module(module_path)
     scheduler_class = getattr(module, class_name)
 
-    return scheduler_class()
+    return scheduler_class()  # type: ignore[no-any-return]
 
 
 def register_scheduler(name: str, import_path: str) -> None:

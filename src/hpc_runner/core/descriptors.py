@@ -1,7 +1,7 @@
 """Descriptor pattern for job attributes and scheduler arguments."""
 
 from abc import ABC, abstractmethod
-from typing import Any, Generic, TypeVar
+from typing import Any, Generic, TypeVar, overload
 
 T = TypeVar("T")
 
@@ -34,12 +34,18 @@ class JobAttribute(Generic[T]):
     def __init__(self, name: str, *, default: T | None = None):
         self.public_name = name
         self.default = default
-        self._private_name: str | None = None
+        self._private_name: str = f"_{name}"
 
     def __set_name__(self, owner: type, name: str) -> None:
         self._private_name = f"_{name}"
 
-    def __get__(self, obj: Any, objtype: type | None = None) -> T | "JobAttribute[T]":
+    @overload
+    def __get__(self, obj: None, objtype: type) -> "JobAttribute[T]": ...
+
+    @overload
+    def __get__(self, obj: Any, objtype: type | None = None) -> T | None: ...
+
+    def __get__(self, obj: Any, objtype: type | None = None) -> "T | None | JobAttribute[T]":
         if obj is None:
             return self
         return getattr(obj, self._private_name, self.default)

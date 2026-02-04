@@ -11,12 +11,14 @@ click.rich_click.SHOW_ARGUMENTS = True
 # Global console for Rich output
 console = Console()
 
+
 # Context object to pass state between commands
 class Context:
     def __init__(self) -> None:
         self.config_path: Path | None = None
         self.scheduler: str | None = None
         self.verbose: bool = False
+
 
 pass_context = click.make_pass_decorator(Context, ensure=True)
 
@@ -68,8 +70,8 @@ from hpc_runner.cli.status import status  # noqa: E402
 
 cli.add_command(run)
 cli.add_command(status)
-cli.add_command(cancel)
-cli.add_command(config_cmd, name="config")
+cli.add_command(cancel)  # type: ignore[has-type]
+cli.add_command(config_cmd, name="config")  # type: ignore[has-type]
 cli.add_command(monitor)
 
 

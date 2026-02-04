@@ -100,7 +100,7 @@ Save as ``hpc-runner.toml`` (or ``~/.config/hpc-runner/config.toml``):
    time_resource = "h_rt"
 
    merge_output = true
-   purge_modules = false
+   purge_modules = true
    silent_modules = false
    module_init_script = ""
    expand_makeflags = true
