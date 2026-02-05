@@ -164,6 +164,99 @@ Use named job types:
 hpc run --job-type gpu "python train.py"
 ```
 
+### SGE Configuration
+
+SGE clusters vary widely in how resources are named. The `[schedulers.sge]`
+section lets you match your site's conventions without touching job definitions.
+
+**How job fields map to SGE flags:**
+
+| Job Field | SGE Flag | Configurable Via |
+|-----------|----------|------------------|
+| `cpu`     | `-pe <pe_name> <slots>` | `parallel_environment` |
+| `mem`     | `-l <resource>=<value>` | `memory_resource` |
+| `time`    | `-l <resource>=<value>` | `time_resource` |
+| `queue`   | `-q <queue>` | direct |
+| `resources` | `-l <name>=<value>` | direct |
+
+**Full `[schedulers.sge]` reference:**
+
+```toml
+[schedulers.sge]
+# Resource naming -- these must match your site's SGE configuration
+parallel_environment = "smp"    # PE name for CPU slots (some sites use "mpi", "threaded", etc.)
+memory_resource = "mem_free"    # Memory resource name (common alternatives: "h_vmem", "virtual_free")
+time_resource = "h_rt"          # Time limit resource name (commonly "h_rt")
+
+# Output handling
+merge_output = true             # Merge stderr into stdout (-j y)
+
+# Module system
+purge_modules = true            # Run 'module purge' before loading job modules
+silent_modules = false          # Suppress module command output (-s flag)
+module_init_script = ""         # Path to module init script (auto-detected if empty)
+
+# Environment
+expand_makeflags = true         # Expand $NSLOTS in MAKEFLAGS for parallel make
+unset_vars = []                 # Environment variables to unset in jobs
+                                # e.g. ["https_proxy", "http_proxy"]
+```
+
+**Fully populated config example:**
+
+```toml
+[defaults]
+scheduler = "auto"
+cpu = 1
+mem = "4G"
+time = "1:00:00"
+queue = "batch.q"
+use_cwd = true
+inherit_env = true
+stdout = "hpc.%N.%J.out"
+modules = ["gcc/12.2", "python/3.11"]
+resources = [
+  { name = "scratch", value = "20G" }
+]
+
+[schedulers.sge]
+parallel_environment = "smp"
+memory_resource = "mem_free"
+time_resource = "h_rt"
+merge_output = true
+purge_modules = true
+silent_modules = false
+expand_makeflags = true
+unset_vars = ["https_proxy", "http_proxy"]
+
+[tools.python]
+cpu = 4
+mem = "16G"
+time = "4:00:00"
+queue = "short.q"
+modules = ["-", "python/3.11"]   # leading "-" replaces the list instead of merging
+resources = [
+  { name = "tmpfs", value = "8G" }
+]
+
+[types.interactive]
+queue = "interactive.q"
+time = "8:00:00"
+cpu = 2
+mem = "8G"
+
+[types.gpu]
+queue = "gpu.q"
+cpu = 8
+mem = "64G"
+time = "12:00:00"
+resources = [
+  { name = "gpu", value = 1 }
+]
+```
+
+This config can also be embedded in `pyproject.toml` under `[tool.hpc-runner]`.
+
 ## TUI Monitor
 
 Launch the interactive job monitor:
