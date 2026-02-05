@@ -1,5 +1,6 @@
 """Run command - submit jobs to the scheduler."""
 
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import rich_click as click
@@ -19,10 +20,10 @@ console = Console()
 @click.command(
     context_settings={
         "ignore_unknown_options": True,
-        "allow_interspersed_args": True,
+        "allow_interspersed_args": False,
     }
 )
-@click.argument("args", nargs=-1, type=click.UNPROCESSED)
+@click.argument("args", nargs=-1)
 # All hpc-runner options are long-form only
 @click.option("--job-name", "job_name", help="Job name")
 @click.option("--cpu", type=int, help="Number of CPUs")
@@ -76,42 +77,43 @@ def run(
 ) -> None:
     """Submit a job to the scheduler.
 
-    COMMAND is the command to execute. Use quotes for complex commands:
+    COMMAND is the command to execute, including any flags it needs:
 
     \b
         hpc run "make -j8 all"
         hpc run python script.py --arg value
+        hpc run --interactive coreConsultant -shell -f config.tcl
 
-    Any unrecognized options starting with '-' are passed directly to the
-    underlying scheduler. This allows using native flags:
-
-    \b
-        hpc run -N 4 -n 16 "mpirun ./sim"     # Slurm nodes/tasks
-        hpc run -q batch.q -l gpu=2 "train"   # SGE queue/resources
+    All hpc-runner options (--cpu, --mem, etc.) must come before the command.
     """
     import shlex
 
     from hpc_runner.core.job import Job
     from hpc_runner.schedulers import get_scheduler
 
-    # Parse args into command and scheduler passthrough args
-    command_parts, scheduler_args = _parse_args(args)
-
-    if not command_parts:
+    if not args:
         raise click.UsageError("Command is required")
 
     # Use shlex.join to preserve quoting for args with spaces/special chars
-    cmd_str = shlex.join(command_parts)
+    cmd_str = shlex.join(args)
 
     # Get scheduler
     scheduler_name = "local" if local else ctx.scheduler
     scheduler = get_scheduler(scheduler_name)
 
     # Create job from config or parameters
+    # --job-type explicitly specifies a type, otherwise auto-detect tool from command
     if job_type:
         job = Job.from_config(job_type, command=cmd_str)
     else:
-        job = Job(command=cmd_str)
+        # Auto-detect tool from first word of command
+        from hpc_runner.core.config import get_config
+        config = get_config()
+        tool_name = Path(args[0]).name  # Strip path, get basename
+        if tool_name in config.tools:
+            job = Job.from_config(tool_name, command=cmd_str)
+        else:
+            job = Job(command=cmd_str)
 
     # Apply CLI overrides
     if job_name:
@@ -142,19 +144,13 @@ def run(
     # inherit_env is always set (has a default), so always apply it
     job.inherit_env = inherit_env
 
-    # Add scheduler passthrough args
-    if scheduler_args:
-        job.raw_args = scheduler_args
-        if ctx.verbose:
-            console.print(f"[dim]Scheduler passthrough: {' '.join(scheduler_args)}[/dim]")
-
     # Handle array jobs
     if array:
         _handle_array_job(job, array, scheduler, dry_run, ctx.verbose)
         return
 
     if dry_run:
-        _show_dry_run(job, scheduler, scheduler_args, interactive=interactive)
+        _show_dry_run(job, scheduler, interactive=interactive)
         return
 
     # Submit the job
@@ -179,69 +175,9 @@ def run(
             console.print(f"Job completed with status: [bold]{final_status.name}[/bold]")
 
 
-def _parse_args(args: tuple[str, ...]) -> tuple[list[str], list[str]]:
-    """Parse args into command parts and scheduler passthrough args.
-
-    Scheduler args are any args that:
-    - Start with '-' and are not recognized hpc-runner options
-    - Include their values (e.g., "-N 4" becomes ["-N", "4"])
-
-    The command is everything after the first non-option arg or after '--'.
-
-    Args:
-        args: Raw arguments from click
-
-    Returns:
-        Tuple of (command_parts, scheduler_args)
-    """
-    command_parts: list[str] = []
-    scheduler_args: list[str] = []
-
-    args_list = list(args)
-    i = 0
-    in_command = False
-
-    while i < len(args_list):
-        arg = args_list[i]
-
-        # '--' signals end of options
-        if arg == "--":
-            in_command = True
-            i += 1
-            continue
-
-        if in_command:
-            command_parts.append(arg)
-            i += 1
-            continue
-
-        # Check if this looks like an option
-        if arg.startswith("-"):
-            # This is a scheduler passthrough option
-            scheduler_args.append(arg)
-
-            # Check if next arg is the value (not another option)
-            if i + 1 < len(args_list) and not args_list[i + 1].startswith("-"):
-                # Handle special case: is this a flag or does it take a value?
-                # Heuristic: if next arg doesn't start with '-', treat as value
-                # unless the current arg uses '=' syntax
-                if "=" not in arg:
-                    i += 1
-                    scheduler_args.append(args_list[i])
-            i += 1
-        else:
-            # First non-option arg starts the command
-            in_command = True
-            command_parts.append(arg)
-            i += 1
-
-    return command_parts, scheduler_args
-
-
 def _show_dry_run(
     job: "Job",
     scheduler: "BaseScheduler",
-    scheduler_args: list[str],
     interactive: bool = False,
 ) -> None:
     """Display what would be submitted."""
@@ -256,9 +192,6 @@ def _show_dry_run(
             border_style="blue",
         )
     )
-
-    if scheduler_args:
-        console.print(f"\n[bold]Scheduler passthrough args:[/bold] {' '.join(scheduler_args)}")
 
     console.print("\n[bold]Generated script:[/bold]")
     if interactive:
@@ -299,7 +232,7 @@ def _handle_array_job(
 
     if dry_run:
         console.print(f"[bold]Array job:[/bold] {array_job.range_str} ({array_job.count} tasks)")
-        _show_dry_run(job, scheduler, [])
+        _show_dry_run(job, scheduler)
         return
 
     result = array_job.submit(scheduler)

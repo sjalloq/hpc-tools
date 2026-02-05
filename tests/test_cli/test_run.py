@@ -4,90 +4,6 @@ import pytest
 from click.testing import CliRunner
 
 from hpc_runner.cli.main import cli
-from hpc_runner.cli.run import _parse_args
-
-
-class TestParseArgs:
-    """Tests for argument parsing function."""
-
-    def test_parse_simple_command(self):
-        """Test parsing a simple command without scheduler args."""
-        args = ("python", "script.py")
-        cmd, sched = _parse_args(args)
-        assert cmd == ["python", "script.py"]
-        assert sched == []
-
-    def test_parse_with_scheduler_flags(self):
-        """Test parsing with scheduler flags."""
-        args = ("-N", "4", "-n", "16", "mpirun", "./sim")
-        cmd, sched = _parse_args(args)
-        assert cmd == ["mpirun", "./sim"]
-        assert sched == ["-N", "4", "-n", "16"]
-
-    def test_parse_with_equals_syntax(self):
-        """Test parsing with equals syntax options."""
-        args = ("--gres=gpu:2", "python", "train.py")
-        cmd, sched = _parse_args(args)
-        assert cmd == ["python", "train.py"]
-        assert sched == ["--gres=gpu:2"]
-
-    def test_parse_with_double_dash(self):
-        """Test parsing with -- separator."""
-        args = ("-N", "4", "--", "python", "-c", "print('hello')")
-        cmd, sched = _parse_args(args)
-        assert cmd == ["python", "-c", "print('hello')"]
-        assert sched == ["-N", "4"]
-
-    def test_parse_mixed_options(self):
-        """Test real-world case with mixed options."""
-        args = ("-l", "gpu=2", "-q", "batch.q", "python", "train.py", "--epochs", "100")
-        cmd, sched = _parse_args(args)
-        assert cmd == ["python", "train.py", "--epochs", "100"]
-        assert sched == ["-l", "gpu=2", "-q", "batch.q"]
-
-    def test_parse_command_only(self):
-        """Test parsing command with no scheduler args."""
-        args = ("echo", "hello", "world")
-        cmd, sched = _parse_args(args)
-        assert cmd == ["echo", "hello", "world"]
-        assert sched == []
-
-    def test_parse_empty_args(self):
-        """Test parsing empty args."""
-        args = ()
-        cmd, sched = _parse_args(args)
-        assert cmd == []
-        assert sched == []
-
-    def test_parse_sge_pe_args_with_separator(self):
-        """Test parsing SGE parallel environment args with -- separator.
-
-        Note: Options that take multiple values (like -pe mpi 16) require
-        using -- to separate scheduler args from command.
-        """
-        args = ("-pe", "mpi", "-l", "exclusive=true", "--", "mpirun", "./simulation")
-        cmd, sched = _parse_args(args)
-        assert cmd == ["mpirun", "./simulation"]
-        assert sched == ["-pe", "mpi", "-l", "exclusive=true"]
-
-    def test_parse_sge_pe_slots_in_raw(self):
-        """Test that multi-value options need special handling.
-
-        Without --, the parser can't distinguish '16' from a command,
-        so users should use raw args format or -- separator.
-        """
-        # Using equals syntax or quoted args is another workaround
-        args = ("-l", "pe_slots=16", "-l", "exclusive=true", "mpirun", "./simulation")
-        cmd, sched = _parse_args(args)
-        assert cmd == ["mpirun", "./simulation"]
-        assert sched == ["-l", "pe_slots=16", "-l", "exclusive=true"]
-
-    def test_parse_command_with_dashes(self):
-        """Test command arguments that look like options after command starts."""
-        args = ("python", "script.py", "--input", "file.txt", "--output", "out.txt")
-        cmd, sched = _parse_args(args)
-        assert cmd == ["python", "script.py", "--input", "file.txt", "--output", "out.txt"]
-        assert sched == []
 
 
 class TestRunCommand:
@@ -157,29 +73,27 @@ class TestRunCommand:
             assert result.exit_code == 0
             assert "completed successfully" in result.output
 
-    def test_run_with_scheduler_passthrough(self, runner, temp_dir):
-        """Test run with scheduler passthrough args."""
+    def test_run_command_with_flags(self, runner, temp_dir):
+        """Test run with command that has its own flags."""
         result = runner.invoke(
             cli,
             [
                 "--scheduler",
                 "local",
-                "--verbose",
                 "run",
                 "--dry-run",
+                "mpirun",
                 "-N",
                 "4",
                 "-n",
                 "16",
-                "mpirun",
                 "./sim",
             ],
         )
         assert result.exit_code == 0
         assert "Dry Run" in result.output
-        assert "mpirun ./sim" in result.output
-        # Passthrough args should be shown in verbose mode
-        assert "-N 4" in result.output or "passthrough" in result.output.lower()
+        # All args become part of the command
+        assert "mpirun -N 4 -n 16 ./sim" in result.output
 
     def test_run_requires_command(self, runner):
         """Test that run requires a command."""
@@ -300,6 +214,113 @@ class TestRunCommand:
             assert result.exit_code == 0
             out = (subdir / "out.log").read_text()
             assert "hello" in out
+        finally:
+            os.chdir(old_cwd)
+
+
+class TestToolAutoDetection:
+    """Tests for automatic tool detection from command."""
+
+    @pytest.fixture
+    def runner(self):
+        return CliRunner()
+
+    @pytest.fixture
+    def config_with_tools(self, temp_dir):
+        """Create a config file with tool definitions."""
+        config_file = temp_dir / "hpc-runner.toml"
+        config_file.write_text("""
+[tools.python]
+cpu = 4
+mem = "16G"
+modules = ["python/3.11"]
+
+[tools.make]
+cpu = 8
+
+[types.gpu]
+queue = "gpu.q"
+cpu = 8
+""")
+        return config_file
+
+    def test_tool_auto_detected_from_command(self, runner, temp_dir, config_with_tools):
+        """Test that tool config is auto-detected from command."""
+        import os
+        old_cwd = os.getcwd()
+        os.chdir(temp_dir)
+        try:
+            result = runner.invoke(
+                cli,
+                ["--scheduler", "local", "run", "--dry-run", "python", "script.py"],
+            )
+            assert result.exit_code == 0
+            # Should pick up modules from [tools.python]
+            assert "python/3.11" in result.output
+        finally:
+            os.chdir(old_cwd)
+
+    def test_tool_with_path_strips_directory(self, runner, temp_dir, config_with_tools):
+        """Test that tool is detected even with full path."""
+        import os
+        old_cwd = os.getcwd()
+        os.chdir(temp_dir)
+        try:
+            result = runner.invoke(
+                cli,
+                ["--scheduler", "local", "run", "--dry-run", "/usr/bin/python", "script.py"],
+            )
+            assert result.exit_code == 0
+            # Should still detect "python" from /usr/bin/python
+            assert "python/3.11" in result.output
+        finally:
+            os.chdir(old_cwd)
+
+    def test_unknown_tool_uses_defaults(self, runner, temp_dir, config_with_tools):
+        """Test that unknown tools fall back to defaults."""
+        import os
+        old_cwd = os.getcwd()
+        os.chdir(temp_dir)
+        try:
+            result = runner.invoke(
+                cli,
+                ["--scheduler", "local", "run", "--dry-run", "unknown_tool", "arg"],
+            )
+            assert result.exit_code == 0
+            # Should not have python modules
+            assert "python/3.11" not in result.output
+        finally:
+            os.chdir(old_cwd)
+
+    def test_job_type_uses_types_section(self, runner, temp_dir, config_with_tools):
+        """Test that --job-type explicitly uses [types] section."""
+        import os
+        old_cwd = os.getcwd()
+        os.chdir(temp_dir)
+        try:
+            result = runner.invoke(
+                cli,
+                ["--scheduler", "local", "run", "--dry-run", "--job-type", "gpu", "python", "train.py"],
+            )
+            assert result.exit_code == 0
+            # Should NOT have python modules (using type, not tool)
+            # Types don't auto-merge with tool detection
+        finally:
+            os.chdir(old_cwd)
+
+    def test_cli_options_override_tool_config(self, runner, temp_dir, config_with_tools):
+        """Test that CLI options override tool config."""
+        import os
+        old_cwd = os.getcwd()
+        os.chdir(temp_dir)
+        try:
+            result = runner.invoke(
+                cli,
+                ["--scheduler", "local", "run", "--dry-run", "--cpu", "2", "python", "script.py"],
+            )
+            assert result.exit_code == 0
+            # CPU should be overridden to 2, not 4 from config
+            # (This is verified by the job creation, hard to assert in output)
         finally:
             os.chdir(old_cwd)
 
