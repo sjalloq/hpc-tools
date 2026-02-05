@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+import re
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -13,6 +15,10 @@ else:
     import tomli as tomllib  # type: ignore[import-not-found]
 
 
+# Environment variable for site/system config
+HPC_CONFIG_ENV_VAR = "HPC_RUNNER_CONFIG"
+
+
 @dataclass
 class HPCConfig:
     """Loaded configuration."""
@@ -22,7 +28,7 @@ class HPCConfig:
     types: dict[str, dict[str, Any]] = field(default_factory=dict)
     schedulers: dict[str, dict[str, Any]] = field(default_factory=dict)
 
-    _source_path: Path | None = field(default=None, repr=False)
+    _source_paths: list[Path] = field(default_factory=list, repr=False)
 
     def get_job_config(self, tool_or_type: str) -> dict[str, Any]:
         """Get merged configuration for a tool or type.
@@ -80,46 +86,145 @@ def _merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
     return result
 
 
-def find_config_file() -> Path | None:
-    """Find configuration file in priority order.
+def _expand_env_vars(path_str: str) -> str:
+    """Expand environment variables in a path string.
 
-    Search order:
-    1. ./hpc-runner.toml (current directory)
-    2. ./pyproject.toml [tool.hpc-runner] section
-    3. Git repository root hpc-runner.toml
-    4. ~/.config/hpc-runner/config.toml
-    5. Package defaults
+    Supports ${VAR} and $VAR syntax.
     """
-    # Current directory
-    cwd = Path.cwd()
-    if (cwd / "hpc-runner.toml").exists():
-        return cwd / "hpc-runner.toml"
+    # Handle ${VAR} syntax
+    def replace_braced(match: re.Match[str]) -> str:
+        var_name = match.group(1)
+        return os.environ.get(var_name, match.group(0))
 
-    if (cwd / "pyproject.toml").exists():
+    result = re.sub(r"\$\{([^}]+)\}", replace_braced, path_str)
+
+    # Handle $VAR syntax (word characters only)
+    def replace_simple(match: re.Match[str]) -> str:
+        var_name = match.group(1)
+        return os.environ.get(var_name, match.group(0))
+
+    result = re.sub(r"\$([A-Za-z_][A-Za-z0-9_]*)", replace_simple, result)
+
+    return result
+
+
+def _resolve_extends(config_path: Path, seen: set[Path] | None = None) -> list[Path]:
+    """Resolve extends chain for a config file.
+
+    Returns list of paths in order they should be merged (base first).
+    Detects circular dependencies.
+    """
+    if seen is None:
+        seen = set()
+
+    config_path = config_path.resolve()
+
+    if config_path in seen:
+        raise ValueError(f"Circular extends detected: {config_path}")
+
+    seen.add(config_path)
+
+    try:
+        with open(config_path, "rb") as f:
+            data = tomllib.load(f)
+    except Exception:
+        return [config_path]
+
+    extends = data.get("extends")
+    if not extends:
+        return [config_path]
+
+    # Expand env vars and resolve relative to config file's directory
+    extends_expanded = _expand_env_vars(extends)
+    extends_path = Path(extends_expanded)
+
+    if not extends_path.is_absolute():
+        extends_path = config_path.parent / extends_path
+
+    extends_path = extends_path.resolve()
+
+    if not extends_path.exists():
+        # Warning but don't fail - the extends target might not exist yet
+        return [config_path]
+
+    # Recursively resolve the parent's extends
+    parent_chain = _resolve_extends(extends_path, seen)
+
+    return parent_chain + [config_path]
+
+
+def find_config_files() -> list[Path]:
+    """Find all configuration files to merge.
+
+    Returns list of paths in merge order (first = lowest priority).
+
+    Merge order:
+    1. $HPC_RUNNER_CONFIG (if set) - site/system defaults
+    2. ~/.config/hpc-runner/{config.toml,hpc-runner.toml} - user defaults
+    3. <git-root>/hpc-runner.toml (with extends resolution)
+    4. ./hpc-runner.toml or ./pyproject.toml (with extends resolution)
+    """
+    configs: list[Path] = []
+    seen: set[Path] = set()
+
+    def add_config(path: Path) -> None:
+        """Add config and its extends chain, avoiding duplicates."""
+        resolved = path.resolve()
+        if resolved in seen:
+            return
+
+        # Resolve extends chain
+        chain = _resolve_extends(path)
+        for p in chain:
+            if p not in seen:
+                seen.add(p)
+                configs.append(p)
+
+    # 1. Environment variable config (site/system defaults)
+    env_config = os.environ.get(HPC_CONFIG_ENV_VAR)
+    if env_config:
+        env_path = Path(_expand_env_vars(env_config))
+        if env_path.exists():
+            add_config(env_path)
+
+    # 2. User config (check both config.toml and hpc-runner.toml)
+    user_config_dir = Path.home() / ".config" / "hpc-runner"
+    for user_config_name in ("config.toml", "hpc-runner.toml"):
+        user_config = user_config_dir / user_config_name
+        if user_config.exists():
+            add_config(user_config)
+            break  # Use first one found
+
+    # 3. Git root config
+    cwd = Path.cwd()
+    git_root = _find_git_root(cwd)
+    if git_root:
+        git_config = git_root / "hpc-runner.toml"
+        if git_config.exists():
+            add_config(git_config)
+
+    # 4. Current directory config
+    if (cwd / "hpc-runner.toml").exists():
+        add_config(cwd / "hpc-runner.toml")
+    elif (cwd / "pyproject.toml").exists():
         try:
             with open(cwd / "pyproject.toml", "rb") as f:
                 pyproject = tomllib.load(f)
             if "tool" in pyproject and "hpc-runner" in pyproject["tool"]:
-                return cwd / "pyproject.toml"
+                add_config(cwd / "pyproject.toml")
         except Exception:
             pass
 
-    # Git root
-    git_root = _find_git_root(cwd)
-    if git_root and (git_root / "hpc-runner.toml").exists():
-        return git_root / "hpc-runner.toml"
+    return configs
 
-    # User config
-    user_config = Path.home() / ".config" / "hpc-runner" / "config.toml"
-    if user_config.exists():
-        return user_config
 
-    # Package defaults
-    package_defaults = Path(__file__).parent.parent.parent.parent / "defaults" / "config.toml"
-    if package_defaults.exists():
-        return package_defaults
+def find_config_file() -> Path | None:
+    """Find the highest priority configuration file.
 
-    return None
+    For backwards compatibility. Returns the last (highest priority) config.
+    """
+    configs = find_config_files()
+    return configs[-1] if configs else None
 
 
 def _find_git_root(start: Path) -> Path | None:
@@ -132,35 +237,68 @@ def _find_git_root(start: Path) -> Path | None:
     return None
 
 
-def load_config(path: Path | str | None = None) -> HPCConfig:
-    """Load configuration from file.
-
-    Args:
-        path: Explicit config path or None to auto-discover
-    """
-    if path is None:
-        path = find_config_file()
-
-    if path is None:
-        return HPCConfig()  # Empty config, use defaults
-
-    path = Path(path)
-
+def _load_single_config(path: Path) -> dict[str, Any]:
+    """Load a single config file and return its data dict."""
     with open(path, "rb") as f:
-        data = tomllib.load(f)
+        data: dict[str, Any] = tomllib.load(f)
 
     # Handle pyproject.toml
     if path.name == "pyproject.toml":
         tool_section = data.get("tool", {})
-        data = tool_section.get("hpc-runner", {})
+        if isinstance(tool_section, dict):
+            hpc_section = tool_section.get("hpc-runner", {})
+            data = dict(hpc_section) if isinstance(hpc_section, dict) else {}
+        else:
+            data = {}
+
+    # Remove 'extends' key - it's metadata, not config
+    data.pop("extends", None)
+
+    return data
+
+
+def load_config(path: Path | str | None = None) -> HPCConfig:
+    """Load and merge configuration from all discovered files.
+
+    Args:
+        path: Explicit config path or None to auto-discover and merge all
+    """
+    if path is not None:
+        # Explicit path - load just that file (with its extends chain)
+        path = Path(path)
+        config_files = _resolve_extends(path)
+    else:
+        # Auto-discover and merge all
+        config_files = find_config_files()
+
+    if not config_files:
+        return HPCConfig()  # Empty config
+
+    # Merge all configs in order (first = lowest priority)
+    merged: dict[str, Any] = {
+        "defaults": {},
+        "tools": {},
+        "types": {},
+        "schedulers": {},
+    }
+
+    for config_path in config_files:
+        try:
+            data = _load_single_config(config_path)
+            for key in merged:
+                if key in data:
+                    merged[key] = _merge(merged[key], data[key])
+        except Exception:
+            # Skip files that fail to load
+            continue
 
     config = HPCConfig(
-        defaults=data.get("defaults", {}),
-        tools=data.get("tools", {}),
-        types=data.get("types", {}),
-        schedulers=data.get("schedulers", {}),
+        defaults=merged["defaults"],
+        tools=merged["tools"],
+        types=merged["types"],
+        schedulers=merged["schedulers"],
     )
-    config._source_path = path
+    config._source_paths = config_files
 
     return config
 

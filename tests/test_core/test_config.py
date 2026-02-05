@@ -2,7 +2,18 @@
 
 import os
 
-from hpc_runner.core.config import HPCConfig, _merge, find_config_file, load_config
+import pytest
+
+from hpc_runner.core.config import (
+    HPC_CONFIG_ENV_VAR,
+    HPCConfig,
+    _expand_env_vars,
+    _merge,
+    _resolve_extends,
+    find_config_file,
+    find_config_files,
+    load_config,
+)
 
 
 class TestHPCConfig:
@@ -143,16 +154,18 @@ class TestLoadConfig:
         assert config.defaults["mem"] == "8G"
         assert config.schedulers["sge"]["parallel_environment"] == "mpi"
 
-    def test_load_config_uses_package_defaults(self, temp_dir):
-        """Test that loading uses package defaults when no user config found."""
+    def test_load_config_returns_empty_when_no_config(self, temp_dir):
+        """Test that loading returns empty config when no config files found."""
         # Change to temp dir where there's no user config
         old_cwd = os.getcwd()
         os.chdir(temp_dir)
         try:
             config = load_config()
-            # Package defaults should be loaded
-            assert "cpu" in config.defaults
-            assert "mem" in config.defaults
+            # No package defaults - should return empty config
+            assert config.defaults == {}
+            assert config.tools == {}
+            assert config.types == {}
+            assert config.schedulers == {}
         finally:
             os.chdir(old_cwd)
 
@@ -185,3 +198,172 @@ class TestFindConfigFile:
             assert found == pyproject
         finally:
             os.chdir(old_cwd)
+
+
+class TestEnvVarExpansion:
+    """Tests for environment variable expansion in paths."""
+
+    def test_expand_braced_env_var(self):
+        """Test ${VAR} syntax expansion."""
+        os.environ["TEST_HPC_PATH"] = "/test/path"
+        try:
+            result = _expand_env_vars("${TEST_HPC_PATH}/config.toml")
+            assert result == "/test/path/config.toml"
+        finally:
+            del os.environ["TEST_HPC_PATH"]
+
+    def test_expand_simple_env_var(self):
+        """Test $VAR syntax expansion."""
+        os.environ["TEST_HPC_PATH"] = "/test/path"
+        try:
+            result = _expand_env_vars("$TEST_HPC_PATH/config.toml")
+            assert result == "/test/path/config.toml"
+        finally:
+            del os.environ["TEST_HPC_PATH"]
+
+    def test_undefined_env_var_unchanged(self):
+        """Test that undefined env vars are left unchanged."""
+        result = _expand_env_vars("${UNDEFINED_VAR}/config.toml")
+        assert result == "${UNDEFINED_VAR}/config.toml"
+
+    def test_multiple_env_vars(self):
+        """Test multiple env vars in one path."""
+        os.environ["TEST_BASE"] = "/base"
+        os.environ["TEST_SUB"] = "subdir"
+        try:
+            result = _expand_env_vars("${TEST_BASE}/${TEST_SUB}/config.toml")
+            assert result == "/base/subdir/config.toml"
+        finally:
+            del os.environ["TEST_BASE"]
+            del os.environ["TEST_SUB"]
+
+
+class TestExtendsResolution:
+    """Tests for extends chain resolution."""
+
+    def test_resolve_extends_single(self, temp_dir):
+        """Test resolving a single extends."""
+        base_config = temp_dir / "base.toml"
+        base_config.write_text("[defaults]\ncpu = 1\n")
+
+        child_config = temp_dir / "child.toml"
+        child_config.write_text(f'extends = "{base_config}"\n[defaults]\nmem = "8G"\n')
+
+        chain = _resolve_extends(child_config)
+
+        assert len(chain) == 2
+        assert chain[0] == base_config.resolve()
+        assert chain[1] == child_config.resolve()
+
+    def test_resolve_extends_relative_path(self, temp_dir):
+        """Test resolving extends with relative path."""
+        base_config = temp_dir / "base.toml"
+        base_config.write_text("[defaults]\ncpu = 1\n")
+
+        child_config = temp_dir / "child.toml"
+        child_config.write_text('extends = "base.toml"\n[defaults]\nmem = "8G"\n')
+
+        chain = _resolve_extends(child_config)
+
+        assert len(chain) == 2
+        assert chain[0] == base_config.resolve()
+
+    def test_resolve_extends_chain(self, temp_dir):
+        """Test resolving a chain of extends."""
+        grandparent = temp_dir / "grandparent.toml"
+        grandparent.write_text("[defaults]\ncpu = 1\n")
+
+        parent = temp_dir / "parent.toml"
+        parent.write_text('extends = "grandparent.toml"\n[defaults]\nmem = "4G"\n')
+
+        child = temp_dir / "child.toml"
+        child.write_text('extends = "parent.toml"\n[defaults]\ntime = "1:00:00"\n')
+
+        chain = _resolve_extends(child)
+
+        assert len(chain) == 3
+        assert chain[0] == grandparent.resolve()
+        assert chain[1] == parent.resolve()
+        assert chain[2] == child.resolve()
+
+    def test_resolve_extends_circular_detected(self, temp_dir):
+        """Test that circular extends are detected."""
+        config_a = temp_dir / "a.toml"
+        config_b = temp_dir / "b.toml"
+
+        config_a.write_text('extends = "b.toml"\n[defaults]\ncpu = 1\n')
+        config_b.write_text('extends = "a.toml"\n[defaults]\nmem = "4G"\n')
+
+        with pytest.raises(ValueError, match="Circular extends"):
+            _resolve_extends(config_a)
+
+    def test_resolve_extends_with_env_var(self, temp_dir):
+        """Test resolving extends with env var in path."""
+        base_config = temp_dir / "base.toml"
+        base_config.write_text("[defaults]\ncpu = 1\n")
+
+        os.environ["TEST_CONFIG_DIR"] = str(temp_dir)
+        try:
+            child_config = temp_dir / "child.toml"
+            child_config.write_text(
+                'extends = "${TEST_CONFIG_DIR}/base.toml"\n[defaults]\nmem = "8G"\n'
+            )
+
+            chain = _resolve_extends(child_config)
+
+            assert len(chain) == 2
+            assert chain[0] == base_config.resolve()
+        finally:
+            del os.environ["TEST_CONFIG_DIR"]
+
+
+class TestConfigMerging:
+    """Tests for merging multiple config files."""
+
+    def test_load_config_merges_extends(self, temp_dir):
+        """Test that extends configs are merged correctly."""
+        base_config = temp_dir / "base.toml"
+        base_config.write_text(
+            "[defaults]\ncpu = 1\nmem = \"4G\"\n[schedulers.sge]\npe = \"smp\"\n"
+        )
+
+        child_config = temp_dir / "child.toml"
+        child_config.write_text(
+            f'extends = "{base_config}"\n[defaults]\ncpu = 4\n[tools.python]\nmodules = ["python/3.11"]\n'
+        )
+
+        config = load_config(child_config)
+
+        # cpu overridden by child
+        assert config.defaults["cpu"] == 4
+        # mem inherited from base
+        assert config.defaults["mem"] == "4G"
+        # scheduler from base
+        assert config.schedulers["sge"]["pe"] == "smp"
+        # tools from child
+        assert config.tools["python"]["modules"] == ["python/3.11"]
+
+    def test_find_config_files_from_env_var(self, temp_dir):
+        """Test that HPC_RUNNER_CONFIG env var is used."""
+        env_config = temp_dir / "site.toml"
+        env_config.write_text("[defaults]\ncpu = 2\n")
+
+        os.environ[HPC_CONFIG_ENV_VAR] = str(env_config)
+        old_cwd = os.getcwd()
+        os.chdir(temp_dir)
+        try:
+            configs = find_config_files()
+            assert env_config.resolve() in configs
+        finally:
+            del os.environ[HPC_CONFIG_ENV_VAR]
+            os.chdir(old_cwd)
+
+    def test_config_tracks_source_paths(self, temp_dir):
+        """Test that loaded config tracks its source paths."""
+        config_file = temp_dir / "hpc-runner.toml"
+        config_file.write_text("[defaults]\ncpu = 1\n")
+
+        config = load_config(config_file)
+
+        assert len(config._source_paths) == 1
+        assert config._source_paths[0] == config_file.resolve()

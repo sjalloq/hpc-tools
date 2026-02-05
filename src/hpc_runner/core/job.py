@@ -237,6 +237,7 @@ class Job:
             job = Job.from_config("gpu", command="python train.py")
         """
         from hpc_runner.core.config import get_config
+        import inspect
 
         config = get_config()
         job_config = config.get_job_config(tool_or_type)
@@ -251,6 +252,10 @@ class Job:
             for r in job_config["resources"]:
                 resource_set.add(r["name"], r["value"])
             job_config["resources"] = resource_set
+
+        # Filter to only valid Job parameters
+        valid_params = set(inspect.signature(cls.__init__).parameters.keys()) - {"self"}
+        job_config = {k: v for k, v in job_config.items() if k in valid_params}
 
         return cls(**job_config)
 

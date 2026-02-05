@@ -1,6 +1,8 @@
 """Config command - manage configuration."""
 
+import sys
 from pathlib import Path
+from typing import Any
 
 import rich_click as click
 from rich.console import Console
@@ -18,30 +20,109 @@ def config_cmd() -> None:
 
 
 @config_cmd.command("show")
+@click.option("--raw", is_flag=True, help="Show raw file contents instead of merged")
 @pass_context
-def show(ctx: Context) -> None:
+def show(ctx: Context, raw: bool) -> None:
     """Show current configuration."""
-    from hpc_runner.core.config import find_config_file
+    from hpc_runner.core.config import HPC_CONFIG_ENV_VAR, find_config_files, load_config
 
-    config_path = ctx.config_path or find_config_file()
+    if ctx.config_path:
+        config = load_config(ctx.config_path)
+    else:
+        config = load_config()
 
-    if config_path is None:
+    if not config._source_paths:
         console.print("[yellow]No configuration file found[/yellow]")
-        console.print("Using default settings")
-        console.print("\nSearch locations:")
-        console.print("  1. ./hpc-runner.toml")
-        console.print("  2. ./pyproject.toml [tool.hpc-runner]")
-        console.print("  3. <git root>/hpc-runner.toml")
-        console.print("  4. ~/.config/hpc-runner/config.toml")
+        console.print("\nSearched locations:")
+        console.print(f"  - ${HPC_CONFIG_ENV_VAR} environment variable")
+        console.print("  - ~/.config/hpc-runner/{config.toml,hpc-runner.toml}")
+        console.print("  - <git-root>/hpc-runner.toml")
+        console.print("  - ./hpc-runner.toml")
+        console.print("  - ./pyproject.toml [tool.hpc-runner]")
         return
 
-    console.print(f"[bold]Config file:[/bold] {config_path}")
-    console.print()
+    if raw:
+        # Show each config file's raw contents
+        for config_path in config._source_paths:
+            console.print(f"\n[bold]Config file:[/bold] {config_path}")
+            console.print()
+            content = config_path.read_text()
+            syntax = Syntax(content, "toml", theme="monokai", line_numbers=True)
+            console.print(syntax)
+    else:
+        # Show merged config
+        if len(config._source_paths) > 1:
+            console.print("[bold]Merged from:[/bold]")
+            for i, p in enumerate(config._source_paths, 1):
+                console.print(f"  {i}. {p}")
+            console.print()
 
-    # Read and display the config file
-    content = config_path.read_text()
-    syntax = Syntax(content, "toml", theme="monokai", line_numbers=True)
-    console.print(syntax)
+        console.print("[bold]Merged configuration:[/bold]\n")
+
+        # Build TOML representation of merged config
+        if sys.version_info >= (3, 11):
+            import tomllib
+        else:
+            import tomli as tomllib
+
+        # We need tomli_w for writing TOML
+        try:
+            import tomli_w
+            merged_dict = {
+                "defaults": config.defaults,
+                "schedulers": config.schedulers,
+                "tools": config.tools,
+                "types": config.types,
+            }
+            # Filter out empty sections
+            merged_dict = {k: v for k, v in merged_dict.items() if v}
+            content = tomli_w.dumps(merged_dict)
+        except ImportError:
+            # Fallback: manual formatting
+            lines = []
+            if config.defaults:
+                lines.append("[defaults]")
+                for k, v in config.defaults.items():
+                    lines.append(f"{k} = {_format_toml_value(v)}")
+                lines.append("")
+            if config.schedulers:
+                for sched, sched_config in config.schedulers.items():
+                    lines.append(f"[schedulers.{sched}]")
+                    for k, v in sched_config.items():
+                        lines.append(f"{k} = {_format_toml_value(v)}")
+                    lines.append("")
+            if config.tools:
+                for tool, tool_config in config.tools.items():
+                    lines.append(f"[tools.{tool}]")
+                    for k, v in tool_config.items():
+                        lines.append(f"{k} = {_format_toml_value(v)}")
+                    lines.append("")
+            if config.types:
+                for typ, type_config in config.types.items():
+                    lines.append(f"[types.{typ}]")
+                    for k, v in type_config.items():
+                        lines.append(f"{k} = {_format_toml_value(v)}")
+                    lines.append("")
+            content = "\n".join(lines)
+
+        syntax = Syntax(content, "toml", theme="monokai", line_numbers=True)
+        console.print(syntax)
+
+
+def _format_toml_value(value: Any) -> str:
+    """Format a value for TOML output."""
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    elif isinstance(value, str):
+        return f'"{value}"'
+    elif isinstance(value, list):
+        items = ", ".join(_format_toml_value(v) for v in value)
+        return f"[{items}]"
+    elif isinstance(value, dict):
+        items = ", ".join(f"{k} = {_format_toml_value(v)}" for k, v in value.items())
+        return f"{{ {items} }}"
+    else:
+        return str(value)
 
 
 @config_cmd.command("init")
@@ -99,14 +180,31 @@ merge_output = true
 
 
 @config_cmd.command("path")
+@click.option("--all", "show_all", is_flag=True, help="Show all configs in merge chain")
 @pass_context
-def path(ctx: Context) -> None:
-    """Show path to active configuration file."""
-    from hpc_runner.core.config import find_config_file
+def path(ctx: Context, show_all: bool) -> None:
+    """Show path to active configuration file(s)."""
+    from hpc_runner.core.config import HPC_CONFIG_ENV_VAR, find_config_files, _resolve_extends
 
-    config_path = ctx.config_path or find_config_file()
-
-    if config_path:
-        console.print(str(config_path))
+    if ctx.config_path:
+        # Explicit config - show its extends chain
+        config_files = _resolve_extends(ctx.config_path)
     else:
+        config_files = find_config_files()
+
+    if not config_files:
         console.print("[yellow]No configuration file found[/yellow]")
+        console.print("\nSearched locations:")
+        console.print(f"  - ${HPC_CONFIG_ENV_VAR} environment variable")
+        console.print("  - ~/.config/hpc-runner/{config.toml,hpc-runner.toml}")
+        console.print("  - <git-root>/hpc-runner.toml")
+        console.print("  - ./hpc-runner.toml")
+        console.print("  - ./pyproject.toml [tool.hpc-runner]")
+        return
+
+    if show_all or len(config_files) > 1:
+        console.print("[bold]Config merge chain[/bold] (first = lowest priority):\n")
+        for i, p in enumerate(config_files, 1):
+            console.print(f"  {i}. {p}")
+    else:
+        console.print(str(config_files[0]))
