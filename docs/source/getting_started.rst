@@ -21,19 +21,31 @@ Submit a batch job:
 
 .. code-block:: bash
 
-   hpc run "python -c 'print(\"hello\")'"
+   hpc run python -c 'print("hello")'
 
 Show what would be submitted without actually submitting:
 
 .. code-block:: bash
 
-   hpc run --dry-run "python train.py"
+   hpc run --dry-run python train.py
 
 Run interactively (SGE: ``qrsh``):
 
 .. code-block:: bash
 
-   hpc run --interactive "bash"
+   hpc run --interactive bash
+
+Pass raw scheduler arguments using ``--`` as a separator:
+
+.. code-block:: bash
+
+   hpc run -q gpu.q -l gpu=1 -- python train.py
+
+Or use ``submit`` for a config-driven shorthand:
+
+.. code-block:: bash
+
+   submit -t gpu -n 4 python train.py
 
 
 Pick a scheduler
@@ -75,4 +87,3 @@ Then open the file and set your site defaults, e.g. a default SGE queue:
    queue = "batch.q"
 
 See :doc:`configuration` for the full configuration format and examples.
-
