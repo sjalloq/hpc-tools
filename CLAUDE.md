@@ -22,6 +22,10 @@ hpc run xterm
 
 # Or launch a script that uses a particular tool using a job type:
 hpc run --type xcelium run_sim.sh
+
+# Same thing via submit (short options, config-driven):
+submit -t xcelium run_sim.sh
+submit -n 4 -m 16G -I xterm
 ```
 
 Configuration file:
@@ -37,7 +41,7 @@ Configuration file:
 One of the common pitfalls of HPC flows is that what works for one user doesn't always work for another.  Using
 Environment Modules means that common tools flows use a fixed tool version for all users.
 
-To accomplish this, the scheduler must purge all modules as part of its setup script and load any modules defined 
+To accomplish this, the scheduler must purge all modules as part of its setup script and load any modules defined
 for the flow.  Each tool or type defined in the configuration file must also define the set of module files that must
 be loaded.
 
@@ -64,6 +68,11 @@ ruff format src/hpc_runner
 hpc --help
 hpc run --dry-run "echo hello"
 hpc --scheduler sge run --cpu 4 --mem 8G "python script.py"
+
+# submit — config-driven shorthand with short options
+submit --help
+submit --dry-run echo hello
+submit -t gpu -n 4 -m 16G python train.py
 ```
 
 ## Architecture
@@ -88,7 +97,19 @@ hpc --scheduler sge run --cpu 4 --mem 8G "python script.py"
 
 ### CLI (`src/hpc_runner/cli/`)
 
-Uses `rich-click` for styled output. Commands: `run`, `status`, `cancel`, `config`.
+Uses `rich-click` for styled output. Two entry points:
+
+- **`hpc`** (group) — full-control interface with subcommands: `run`, `status`, `cancel`, `config`, `monitor`
+- **`submit`** (standalone) — config-driven daily driver with short options (`-t`, `-n`, `-m`, `-T`, `-I`, `-q`, `-N`, `-w`, `-a`, `-e`, `-d`, `-v`). Closed interface that rejects unknown flags. Builds jobs and submits directly without delegating to `hpc run`.
+
+**`hpc run` vs `submit`**: `hpc run` is the full-control command — it supports scheduler passthrough via `--` separator, long options only, and advanced flags like `--module`, `--nodes`, `--inherit-env`, `--keep-script`, etc. `submit` exposes only the common options with short flags and errors on anything it doesn't recognise. Both share the same core job creation logic (`Job.from_config()` / auto-detect tool from command) and the same `_show_dry_run` / `_handle_array_job` helpers (inlined in each module to avoid a circular import through `main.py`).
+
+**Scheduler passthrough on `hpc run`**: Use `--` to pass raw scheduler arguments. Everything before `--` is scheduler passthrough (set on `job.raw_args`), everything after is the command. Without `--`, all args are the command (no heuristic).
+```bash
+hpc run echo hello                              # no passthrough
+hpc run -q batch.q -l gpu=2 -- python train.py  # passthrough
+hpc run --cpu 4 -q batch.q -- mpirun -N 4 ./sim # mixed
+```
 
 ### Workflow (`src/hpc_runner/workflow/`)
 

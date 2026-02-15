@@ -17,13 +17,25 @@ if TYPE_CHECKING:
 console = Console()
 
 
+def _parse_args(args: tuple[str, ...]) -> tuple[list[str], list[str]]:
+    """Split args on '--' into (scheduler_passthrough, command).
+
+    If '--' is absent, all args are treated as the command.
+    """
+    args_list = list(args)
+    if "--" in args_list:
+        idx = args_list.index("--")
+        return args_list[:idx], args_list[idx + 1 :]
+    return [], args_list
+
+
 @click.command(
     context_settings={
         "ignore_unknown_options": True,
         "allow_interspersed_args": False,
     }
 )
-@click.argument("args", nargs=-1)
+@click.argument("args", nargs=-1, type=click.UNPROCESSED)
 # All hpc-runner options are long-form only
 @click.option("--job-name", "job_name", help="Job name")
 @click.option("--cpu", type=int, help="Number of CPUs")
@@ -80,22 +92,34 @@ def run(
     COMMAND is the command to execute, including any flags it needs:
 
     \b
-        hpc run "make -j8 all"
         hpc run python script.py --arg value
-        hpc run --interactive coreConsultant -shell -f config.tcl
+        hpc run --interactive xterm
 
-    All hpc-runner options (--cpu, --mem, etc.) must come before the command.
+    Use ``--`` to pass raw scheduler arguments before the command:
+
+    \b
+        hpc run -q batch.q -l gpu=2 -- python train.py
+        hpc run --cpu 4 -q batch.q -- mpirun -N 4 ./sim
+
+    Without ``--``, everything after hpc-runner options is the command.
+
+    TIP: For quick config-driven submissions with short options, use the
+    ``submit`` command instead (e.g. ``submit -n 4 -m 16G make sim``).
     """
     import shlex
 
     from hpc_runner.core.job import Job
     from hpc_runner.schedulers import get_scheduler
 
-    if not args:
+    # Split on '--': everything before is scheduler passthrough,
+    # everything after is the command.  No '--' means all command.
+    scheduler_args, command_parts = _parse_args(args)
+
+    if not command_parts:
         raise click.UsageError("Command is required")
 
     # Use shlex.join to preserve quoting for args with spaces/special chars
-    cmd_str = shlex.join(args)
+    cmd_str = shlex.join(command_parts)
 
     # Get scheduler
     scheduler_name = "local" if local else ctx.scheduler
@@ -108,12 +132,17 @@ def run(
     else:
         # Auto-detect tool from first word of command
         from hpc_runner.core.config import get_config
+
         config = get_config()
-        tool_name = Path(args[0]).name  # Strip path, get basename
+        tool_name = Path(command_parts[0]).name  # Strip path, get basename
         if tool_name in config.tools:
             job = Job.from_config(tool_name, command=cmd_str)
         else:
             job = Job(command=cmd_str)
+
+    # Set scheduler passthrough args
+    if scheduler_args:
+        job.raw_args = scheduler_args
 
     # Apply CLI overrides
     if job_name:
@@ -168,6 +197,8 @@ def run(
             console.print(f"  Scheduler: {scheduler.name}")
             console.print(f"  Job name: {job.name}")
             console.print(f"  Command: {job.command}")
+            if job.raw_args:
+                console.print(f"  Passthrough args: {' '.join(job.raw_args)}")
 
         if wait:
             console.print("[dim]Waiting for job completion...[/dim]")
@@ -182,12 +213,17 @@ def _show_dry_run(
 ) -> None:
     """Display what would be submitted."""
     mode = "interactive" if interactive else "batch"
+    lines = [
+        f"[bold]Scheduler:[/bold] {scheduler.name}",
+        f"[bold]Mode:[/bold] {mode}",
+        f"[bold]Job name:[/bold] {job.name}",
+        f"[bold]Command:[/bold] {job.command}",
+    ]
+    if job.raw_args:
+        lines.append(f"[bold]Scheduler passthrough:[/bold] {' '.join(job.raw_args)}")
     console.print(
         Panel.fit(
-            f"[bold]Scheduler:[/bold] {scheduler.name}\n"
-            f"[bold]Mode:[/bold] {mode}\n"
-            f"[bold]Job name:[/bold] {job.name}\n"
-            f"[bold]Command:[/bold] {job.command}",
+            "\n".join(lines),
             title="Dry Run",
             border_style="blue",
         )

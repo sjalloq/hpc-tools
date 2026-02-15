@@ -1,70 +1,210 @@
-"""Entry point that behaves like `hpc run ...`."""
+"""Standalone submit command — config-driven daily driver with short options.
+
+Unlike ``hpc run`` (which supports scheduler passthrough and long options),
+``submit`` is a closed interface that rejects unknown flags.  All common
+options have single-letter shortcuts for quick interactive use.
+"""
 
 from __future__ import annotations
 
-import sys
-from typing import Final
+from pathlib import Path
+from typing import TYPE_CHECKING
 
-_GLOBAL_FLAGS: Final[set[str]] = {"--config", "--scheduler", "--verbose", "-h", "--help"}
+import rich_click as click
+from rich.console import Console
+from rich.panel import Panel
+from rich.syntax import Syntax
+
+if TYPE_CHECKING:
+    from hpc_runner.core.job import Job
+    from hpc_runner.schedulers.base import BaseScheduler
+
+console = Console()
 
 
-def _split_global_flags(argv: list[str]) -> tuple[list[str], list[str]]:
-    """Split argv into (global_opts, rest) for the `submit` shim.
+@click.command(
+    context_settings={"help_option_names": ["-h", "--help"]},
+)
+@click.argument("args", nargs=-1, required=True)
+@click.option("-t", "--type", "job_type", default=None, help="Job type from config")
+@click.option("-n", "--cpu", type=int, default=None, help="Number of CPUs")
+@click.option("-m", "--mem", default=None, help="Memory (e.g. 16G)")
+@click.option("-T", "--time", "time_limit", default=None, help="Time limit (e.g. 4:00:00)")
+@click.option("-I", "--interactive", is_flag=True, help="Run interactively")
+@click.option("-q", "--queue", default=None, help="Queue/partition")
+@click.option("-N", "--name", "job_name", default=None, help="Job name")
+@click.option("-w", "--wait", is_flag=True, help="Wait for completion")
+@click.option("-a", "--array", default=None, help="Array job spec (e.g. 1-100%5)")
+@click.option("-e", "--env", multiple=True, help="Env var KEY=VAL (repeatable)")
+@click.option("-d", "--depend", default=None, help="Job dependency")
+@click.option("-v", "--verbose", is_flag=True, help="Verbose output")
+@click.option("--dry-run", is_flag=True, help="Show what would be submitted")
+def submit(
+    args: tuple[str, ...],
+    job_type: str | None,
+    cpu: int | None,
+    mem: str | None,
+    time_limit: str | None,
+    interactive: bool,
+    queue: str | None,
+    job_name: str | None,
+    wait: bool,
+    array: str | None,
+    env: tuple[str, ...],
+    depend: str | None,
+    verbose: bool,
+    dry_run: bool,
+) -> None:
+    """Submit a job to the scheduler (config-driven, short options).
 
-    We only recognize the top-level CLI flags supported by `hpc`:
-    --config PATH, --scheduler NAME, --verbose, -h/--help.
+    \b
+    COMMAND is the command to execute, including any flags it needs:
+        submit echo hello
+        submit -t gpu python train.py
+        submit -n 4 -m 16G make sim
 
-    Anything else is treated as part of the `run` command (including scheduler
-    passthrough flags like `-q`, `-l`, etc.).
+    For full control (scheduler passthrough, modules, etc.) use ``hpc run``.
     """
-    global_opts: list[str] = []
-    rest: list[str] = []
+    import shlex
 
-    i = 0
-    while i < len(argv):
-        arg = argv[i]
+    from hpc_runner.core.config import get_config
+    from hpc_runner.core.job import Job
+    from hpc_runner.schedulers import get_scheduler
 
-        # Support --opt=value forms
-        if arg.startswith("--config=") or arg.startswith("--scheduler="):
-            global_opts.append(arg)
-            i += 1
-            continue
+    cmd_str = shlex.join(args)
 
-        if arg not in _GLOBAL_FLAGS:
-            rest = argv[i:]
-            break
+    # Auto-detect scheduler
+    scheduler = get_scheduler()
 
-        global_opts.append(arg)
+    # Create job from config or auto-detect tool from command
+    if job_type:
+        job = Job.from_config(job_type, command=cmd_str)
+    else:
+        config = get_config()
+        tool_name = Path(args[0]).name
+        if tool_name in config.tools:
+            job = Job.from_config(tool_name, command=cmd_str)
+        else:
+            job = Job(command=cmd_str)
 
-        # Options with a value
-        if arg in {"--config", "--scheduler"}:
-            if i + 1 >= len(argv):
-                # Let click surface the error message (missing value)
-                break
-            global_opts.append(argv[i + 1])
-            i += 2
-            continue
+    # Apply CLI overrides
+    if job_name:
+        job.name = job_name
+    if cpu:
+        job.cpu = cpu
+    if mem:
+        job.mem = mem
+    if time_limit:
+        job.time = time_limit
+    if queue:
+        job.queue = queue
+    if depend:
+        job.dependency = depend
 
-        # Flags with no value
-        i += 1
+    # Parse -e KEY=VAL entries
+    for entry in env:
+        if "=" not in entry:
+            raise click.BadParameter(
+                f"Expected KEY=VAL format, got: {entry!r}",
+                param_hint="'-e'",
+            )
+        key, _, val = entry.partition("=")
+        job.env_vars[key] = val
 
-    return global_opts, rest
+    # Handle array jobs
+    if array:
+        _handle_array_job(job, array, scheduler, dry_run, verbose)
+        return
+
+    if dry_run:
+        _show_dry_run(job, scheduler, interactive=interactive)
+        return
+
+    # Submit the job
+    result = scheduler.submit(job, interactive=interactive)
+
+    if interactive:
+        if result.returncode == 0:
+            console.print("[green]Job completed successfully[/green]")
+        else:
+            console.print(f"[red]Job failed with exit code: {result.returncode}[/red]")
+    else:
+        console.print(f"Submitted job [bold cyan]{result.job_id}[/bold cyan]")
+
+        if verbose:
+            console.print(f"  Scheduler: {scheduler.name}")
+            console.print(f"  Job name: {job.name}")
+            console.print(f"  Command: {job.command}")
+
+        if wait:
+            console.print("[dim]Waiting for job completion...[/dim]")
+            final_status = result.wait()
+            console.print(f"Job completed with status: [bold]{final_status.name}[/bold]")
+
+
+def _show_dry_run(
+    job: Job,
+    scheduler: BaseScheduler,
+    interactive: bool = False,
+) -> None:
+    """Display what would be submitted."""
+    mode = "interactive" if interactive else "batch"
+    console.print(
+        Panel.fit(
+            f"[bold]Scheduler:[/bold] {scheduler.name}\n"
+            f"[bold]Mode:[/bold] {mode}\n"
+            f"[bold]Job name:[/bold] {job.name}\n"
+            f"[bold]Command:[/bold] {job.command}",
+            title="Dry Run",
+            border_style="blue",
+        )
+    )
+
+    console.print("\n[bold]Generated script:[/bold]")
+    if interactive:
+        script = scheduler.generate_interactive_script(job, "/tmp/example_script.sh")
+    else:
+        script = scheduler.generate_script(job)
+    syntax = Syntax(script, "bash", theme="monokai", line_numbers=True)
+    console.print(syntax)
+
+
+def _handle_array_job(
+    job: Job,
+    array_spec: str,
+    scheduler: BaseScheduler,
+    dry_run: bool,
+    verbose: bool,
+) -> None:
+    """Handle array job submission."""
+    from hpc_runner.core.job_array import JobArray
+
+    parts = array_spec.replace("%", ":").split(":")
+    range_parts = parts[0].split("-")
+
+    start = int(range_parts[0])
+    end = int(range_parts[1]) if len(range_parts) > 1 else start
+    step = int(parts[1]) if len(parts) > 1 else 1
+    max_concurrent = int(parts[2]) if len(parts) > 2 else None
+
+    array_job = JobArray(
+        job=job,
+        start=start,
+        end=end,
+        step=step,
+        max_concurrent=max_concurrent,
+    )
+
+    if dry_run:
+        console.print(f"[bold]Array job:[/bold] {array_job.range_str} ({array_job.count} tasks)")
+        _show_dry_run(job, scheduler)
+        return
+
+    result = array_job.submit(scheduler)
+    console.print(f"Submitted array job [bold cyan]{result.base_job_id}[/bold cyan]")
+    console.print(f"  Tasks: {array_job.count} ({array_job.range_str})")
 
 
 def main() -> None:
-    """Console script for `submit`.
-
-    This is a convenience alias for `hpc run ...`, but keeps support for
-    top-level flags like `submit --config ...`.
-    """
-    from hpc_runner.cli.main import cli
-
-    argv = sys.argv[1:]
-
-    # `submit --help` should show the run help (not just the group help)
-    if not argv or argv == ["--help"] or argv == ["-h"]:
-        cli.main(args=["run", "--help"], prog_name="submit")
-        return
-
-    global_opts, rest = _split_global_flags(argv)
-    cli.main(args=[*global_opts, "run", *rest], prog_name="submit")
+    """Console script entry point for ``submit``."""
+    submit()

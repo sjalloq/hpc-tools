@@ -1,6 +1,5 @@
 """Config command - manage configuration."""
 
-import sys
 from pathlib import Path
 from typing import Any
 
@@ -24,7 +23,7 @@ def config_cmd() -> None:
 @pass_context
 def show(ctx: Context, raw: bool) -> None:
     """Show current configuration."""
-    from hpc_runner.core.config import HPC_CONFIG_ENV_VAR, find_config_files, load_config
+    from hpc_runner.core.config import HPC_CONFIG_ENV_VAR, load_config
 
     if ctx.config_path:
         config = load_config(ctx.config_path)
@@ -59,15 +58,10 @@ def show(ctx: Context, raw: bool) -> None:
 
         console.print("[bold]Merged configuration:[/bold]\n")
 
-        # Build TOML representation of merged config
-        if sys.version_info >= (3, 11):
-            import tomllib
-        else:
-            import tomli as tomllib
-
         # We need tomli_w for writing TOML
         try:
-            import tomli_w
+            import tomli_w  # type: ignore[import-not-found]
+
             merged_dict = {
                 "defaults": config.defaults,
                 "schedulers": config.schedulers,
@@ -184,7 +178,7 @@ merge_output = true
 @pass_context
 def path(ctx: Context, show_all: bool) -> None:
     """Show path to active configuration file(s)."""
-    from hpc_runner.core.config import HPC_CONFIG_ENV_VAR, find_config_files, _resolve_extends
+    from hpc_runner.core.config import HPC_CONFIG_ENV_VAR, _resolve_extends, find_config_files
 
     if ctx.config_path:
         # Explicit config - show its extends chain

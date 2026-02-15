@@ -218,6 +218,170 @@ class TestRunCommand:
             os.chdir(old_cwd)
 
 
+class TestParseArgs:
+    """Tests for _parse_args helper."""
+
+    def test_no_separator(self):
+        """Without '--', all args are the command."""
+        from hpc_runner.cli.run import _parse_args
+
+        sched, cmd = _parse_args(("echo", "hello"))
+        assert sched == []
+        assert cmd == ["echo", "hello"]
+
+    def test_with_separator(self):
+        """'--' splits into scheduler args and command."""
+        from hpc_runner.cli.run import _parse_args
+
+        sched, cmd = _parse_args(("-q", "batch.q", "--", "echo", "hello"))
+        assert sched == ["-q", "batch.q"]
+        assert cmd == ["echo", "hello"]
+
+    def test_separator_at_start(self):
+        """'--' at start means no scheduler args."""
+        from hpc_runner.cli.run import _parse_args
+
+        sched, cmd = _parse_args(("--", "echo", "hello"))
+        assert sched == []
+        assert cmd == ["echo", "hello"]
+
+    def test_empty_command_after_separator(self):
+        """'--' with nothing after gives empty command."""
+        from hpc_runner.cli.run import _parse_args
+
+        sched, cmd = _parse_args(("-q", "batch.q", "--"))
+        assert sched == ["-q", "batch.q"]
+        assert cmd == []
+
+    def test_empty_args(self):
+        """Empty args gives empty lists."""
+        from hpc_runner.cli.run import _parse_args
+
+        sched, cmd = _parse_args(())
+        assert sched == []
+        assert cmd == []
+
+
+class TestSchedulerPassthrough:
+    """Tests for scheduler passthrough via '--' separator."""
+
+    @pytest.fixture
+    def runner(self):
+        return CliRunner()
+
+    def test_passthrough_with_separator(self, runner, temp_dir):
+        """'--' splits scheduler args from command."""
+        result = runner.invoke(
+            cli,
+            [
+                "--scheduler",
+                "local",
+                "run",
+                "--dry-run",
+                "-q",
+                "batch.q",
+                "--",
+                "echo",
+                "hello",
+            ],
+        )
+        assert result.exit_code == 0
+        assert "echo hello" in result.output
+        assert "Scheduler passthrough" in result.output
+        assert "-q batch.q" in result.output
+
+    def test_no_separator_no_passthrough(self, runner, temp_dir):
+        """Without '--', no scheduler passthrough is shown."""
+        result = runner.invoke(
+            cli,
+            ["--scheduler", "local", "run", "--dry-run", "echo", "hello"],
+        )
+        assert result.exit_code == 0
+        assert "echo hello" in result.output
+        assert "Scheduler passthrough" not in result.output
+
+    def test_command_flags_preserved(self, runner, temp_dir):
+        """Command flags after '--' are preserved as part of the command."""
+        result = runner.invoke(
+            cli,
+            [
+                "--scheduler",
+                "local",
+                "run",
+                "--dry-run",
+                "--",
+                "mpirun",
+                "-N",
+                "4",
+                "./sim",
+            ],
+        )
+        assert result.exit_code == 0
+        assert "mpirun -N 4 ./sim" in result.output
+        assert "Scheduler passthrough" not in result.output
+
+    def test_mixed_hpc_opts_and_passthrough(self, runner, temp_dir):
+        """hpc-runner options and scheduler passthrough work together."""
+        result = runner.invoke(
+            cli,
+            [
+                "--scheduler",
+                "local",
+                "run",
+                "--dry-run",
+                "--cpu",
+                "4",
+                "-q",
+                "batch.q",
+                "--",
+                "python",
+                "train.py",
+            ],
+        )
+        assert result.exit_code == 0
+        assert "python train.py" in result.output
+        assert "Scheduler passthrough" in result.output
+        assert "-q batch.q" in result.output
+
+    def test_empty_command_after_separator_errors(self, runner):
+        """'--' with no command after it is an error."""
+        result = runner.invoke(
+            cli,
+            [
+                "--scheduler",
+                "local",
+                "run",
+                "--dry-run",
+                "-q",
+                "batch.q",
+                "--",
+            ],
+        )
+        assert result.exit_code != 0
+        assert "Command is required" in result.output
+
+    def test_multiple_passthrough_args(self, runner, temp_dir):
+        """Multiple scheduler args before '--' are all captured."""
+        result = runner.invoke(
+            cli,
+            [
+                "--scheduler",
+                "local",
+                "run",
+                "--dry-run",
+                "-q",
+                "batch.q",
+                "-l",
+                "gpu=2",
+                "--",
+                "echo",
+                "hello",
+            ],
+        )
+        assert result.exit_code == 0
+        assert "-q batch.q -l gpu=2" in result.output
+
+
 class TestToolAutoDetection:
     """Tests for automatic tool detection from command."""
 
@@ -247,6 +411,7 @@ cpu = 8
     def test_tool_auto_detected_from_command(self, runner, temp_dir, config_with_tools):
         """Test that tool config is auto-detected from command."""
         import os
+
         old_cwd = os.getcwd()
         os.chdir(temp_dir)
         try:
@@ -263,6 +428,7 @@ cpu = 8
     def test_tool_with_path_strips_directory(self, runner, temp_dir, config_with_tools):
         """Test that tool is detected even with full path."""
         import os
+
         old_cwd = os.getcwd()
         os.chdir(temp_dir)
         try:
@@ -279,6 +445,7 @@ cpu = 8
     def test_unknown_tool_uses_defaults(self, runner, temp_dir, config_with_tools):
         """Test that unknown tools fall back to defaults."""
         import os
+
         old_cwd = os.getcwd()
         os.chdir(temp_dir)
         try:
@@ -295,12 +462,22 @@ cpu = 8
     def test_job_type_uses_types_section(self, runner, temp_dir, config_with_tools):
         """Test that --job-type explicitly uses [types] section."""
         import os
+
         old_cwd = os.getcwd()
         os.chdir(temp_dir)
         try:
             result = runner.invoke(
                 cli,
-                ["--scheduler", "local", "run", "--dry-run", "--job-type", "gpu", "python", "train.py"],
+                [
+                    "--scheduler",
+                    "local",
+                    "run",
+                    "--dry-run",
+                    "--job-type",
+                    "gpu",
+                    "python",
+                    "train.py",
+                ],
             )
             assert result.exit_code == 0
             # Should NOT have python modules (using type, not tool)
@@ -311,6 +488,7 @@ cpu = 8
     def test_cli_options_override_tool_config(self, runner, temp_dir, config_with_tools):
         """Test that CLI options override tool config."""
         import os
+
         old_cwd = os.getcwd()
         os.chdir(temp_dir)
         try:
