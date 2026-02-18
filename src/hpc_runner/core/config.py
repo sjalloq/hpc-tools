@@ -94,6 +94,7 @@ def _expand_env_vars(path_str: str) -> str:
 
     Supports ${VAR} and $VAR syntax.
     """
+
     # Handle ${VAR} syntax
     def replace_braced(match: re.Match[str]) -> str:
         var_name = match.group(1)
