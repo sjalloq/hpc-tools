@@ -183,7 +183,9 @@ class Job:
     # Submission API
     # =========================================================================
 
-    def submit(self, scheduler: BaseScheduler | None = None, keep_script: bool = False) -> JobResult:
+    def submit(
+        self, scheduler: BaseScheduler | None = None, keep_script: bool = False
+    ) -> JobResult:
         """Submit the job to a scheduler.
 
         This is the primary programmatic API for job submission.
@@ -241,8 +243,9 @@ class Job:
             # Config file has [types.gpu] with queue="gpu", resources=[{gpu=1}]
             job = Job.from_config(job_type="gpu", command="python train.py")
         """
-        from hpc_runner.core.config import get_config
         import inspect
+
+        from hpc_runner.core.config import get_config
 
         config = get_config()
 

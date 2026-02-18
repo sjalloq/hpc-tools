@@ -17,9 +17,8 @@ if [[ ! -d "$VENV" ]]; then
   uv venv --python 3.11 "$VENV"
   source "$VENV/bin/activate"
   uv pip install -e ".[all]"
+  pre-commit install
 else
   echo "Using existing virtual environment..."
   source "$VENV/bin/activate"
 fi
-
-# pre-commit install
