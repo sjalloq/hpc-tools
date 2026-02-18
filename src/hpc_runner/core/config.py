@@ -30,20 +30,23 @@ class HPCConfig:
 
     _source_paths: list[Path] = field(default_factory=list, repr=False)
 
-    def get_job_config(self, tool_or_type: str) -> dict[str, Any]:
+    def get_job_config(self, name: str, *, namespace: str = "tools") -> dict[str, Any]:
         """Get merged configuration for a tool or type.
 
-        Lookup order:
-        1. Check types[tool_or_type]
-        2. Check tools[tool_or_type]
-        3. Fall back to defaults
+        Args:
+            name: Tool or type name to look up.
+            namespace: Which config section to search — ``"tools"`` (default)
+                       or ``"types"``.
+
+        Returns:
+            Defaults merged with the matching tool/type entry, or just
+            defaults if *name* is not found in the requested namespace.
         """
         config = self.defaults.copy()
 
-        if tool_or_type in self.types:
-            config = _merge(config, self.types[tool_or_type])
-        elif tool_or_type in self.tools:
-            config = _merge(config, self.tools[tool_or_type])
+        section = self.types if namespace == "types" else self.tools
+        if name in section:
+            config = _merge(config, section[name])
 
         return config
 
@@ -56,7 +59,7 @@ class HPCConfig:
         tool = command.split()[0]
         tool = Path(tool).name
 
-        return self.get_job_config(tool)
+        return self.get_job_config(tool, namespace="tools")
 
     def get_scheduler_config(self, scheduler: str) -> dict[str, Any]:
         """Get scheduler-specific configuration."""

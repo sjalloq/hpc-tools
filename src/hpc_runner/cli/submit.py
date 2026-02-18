@@ -67,7 +67,6 @@ def submit(
     """
     import shlex
 
-    from hpc_runner.core.config import get_config
     from hpc_runner.core.job import Job
     from hpc_runner.schedulers import get_scheduler
 
@@ -78,14 +77,10 @@ def submit(
 
     # Create job from config or auto-detect tool from command
     if job_type:
-        job = Job.from_config(job_type, command=cmd_str)
+        job = Job.from_config(command=cmd_str, job_type=job_type)
     else:
-        config = get_config()
         tool_name = Path(args[0]).name
-        if tool_name in config.tools:
-            job = Job.from_config(tool_name, command=cmd_str)
-        else:
-            job = Job(command=cmd_str)
+        job = Job.from_config(tool_name, command=cmd_str)
 
     # Apply CLI overrides
     if job_name:

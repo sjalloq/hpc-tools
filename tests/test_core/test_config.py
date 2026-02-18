@@ -40,7 +40,7 @@ class TestHPCConfig:
             defaults={"cpu": 1, "mem": "4G"},
             tools={"python": {"cpu": 4, "modules": ["python/3.11"]}},
         )
-        job_config = config.get_job_config("python")
+        job_config = config.get_job_config("python", namespace="tools")
 
         assert job_config["cpu"] == 4  # Overridden
         assert job_config["mem"] == "4G"  # From defaults
@@ -52,10 +52,36 @@ class TestHPCConfig:
             defaults={"cpu": 1},
             types={"gpu": {"queue": "gpu", "resources": [{"name": "gpu", "value": 1}]}},
         )
-        job_config = config.get_job_config("gpu")
+        job_config = config.get_job_config("gpu", namespace="types")
 
         assert job_config["cpu"] == 1  # From defaults
         assert job_config["queue"] == "gpu"
+
+    def test_get_job_config_type_not_found_in_tools_namespace(self):
+        """Test that a type name is NOT matched when namespace='tools'."""
+        config = HPCConfig(
+            defaults={"cpu": 1},
+            tools={"python": {"cpu": 4}},
+            types={"gpu": {"queue": "gpu"}},
+        )
+        job_config = config.get_job_config("gpu", namespace="tools")
+
+        # Should return only defaults — "gpu" is a type, not a tool
+        assert job_config == {"cpu": 1}
+        assert "queue" not in job_config
+
+    def test_get_job_config_tool_not_found_in_types_namespace(self):
+        """Test that a tool name is NOT matched when namespace='types'."""
+        config = HPCConfig(
+            defaults={"cpu": 1},
+            tools={"python": {"cpu": 4}},
+            types={"gpu": {"queue": "gpu"}},
+        )
+        job_config = config.get_job_config("python", namespace="types")
+
+        # Should return only defaults — "python" is a tool, not a type
+        assert job_config == {"cpu": 1}
+        assert "queue" not in job_config
 
     def test_get_tool_config_extracts_name(self):
         """Test that get_tool_config extracts tool name from command."""

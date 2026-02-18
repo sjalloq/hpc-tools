@@ -183,7 +183,7 @@ class Job:
     # Submission API
     # =========================================================================
 
-    def submit(self, scheduler: BaseScheduler | None = None) -> JobResult:
+    def submit(self, scheduler: BaseScheduler | None = None, keep_script: bool = False) -> JobResult:
         """Submit the job to a scheduler.
 
         This is the primary programmatic API for job submission.
@@ -192,6 +192,8 @@ class Job:
             scheduler: Scheduler to use. If None, auto-detects based on
                        environment (checks HPC_SCHEDULER env var, then
                        probes for SGE_ROOT, sbatch, etc.)
+            keep_script: If True, don't delete the generated job script
+                         after submission. Useful for debugging.
 
         Returns:
             JobResult with job ID and methods to check status, get output, etc.
@@ -209,24 +211,27 @@ class Job:
 
         if scheduler is None:
             scheduler = get_scheduler()
-        return scheduler.submit(self)
+        return scheduler.submit(self, keep_script=keep_script)
 
     @classmethod
     def from_config(
         cls,
-        tool_or_type: str,
+        tool: str | None = None,
         command: str | None = None,
+        *,
+        job_type: str | None = None,
         **overrides: Any,
     ) -> Job:
         """Create a job from configuration.
 
         Looks up job settings from the config file by tool name or job type,
-        then applies any overrides.
+        then applies any overrides.  If neither *tool* nor *job_type* is
+        given, only ``[defaults]`` are applied.
 
         Args:
-            tool_or_type: Tool name (e.g., "python", "make") or job type
-                          (e.g., "interactive", "gpu") from config
+            tool: Tool name (e.g., "python", "make") from ``[tools]``.
             command: Command to run. If None, uses command from config.
+            job_type: Job type (e.g., "gpu") from ``[types]``.
             **overrides: Override any job parameters
 
         Returns:
@@ -234,13 +239,19 @@ class Job:
 
         Example:
             # Config file has [types.gpu] with queue="gpu", resources=[{gpu=1}]
-            job = Job.from_config("gpu", command="python train.py")
+            job = Job.from_config(job_type="gpu", command="python train.py")
         """
         from hpc_runner.core.config import get_config
         import inspect
 
         config = get_config()
-        job_config = config.get_job_config(tool_or_type)
+
+        if job_type is not None:
+            job_config = config.get_job_config(job_type, namespace="types")
+        elif tool is not None:
+            job_config = config.get_job_config(tool, namespace="tools")
+        else:
+            job_config = config.defaults.copy()
 
         if command is not None:
             job_config["command"] = command

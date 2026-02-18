@@ -128,17 +128,10 @@ def run(
     # Create job from config or parameters
     # --job-type explicitly specifies a type, otherwise auto-detect tool from command
     if job_type:
-        job = Job.from_config(job_type, command=cmd_str)
+        job = Job.from_config(command=cmd_str, job_type=job_type)
     else:
-        # Auto-detect tool from first word of command
-        from hpc_runner.core.config import get_config
-
-        config = get_config()
         tool_name = Path(command_parts[0]).name  # Strip path, get basename
-        if tool_name in config.tools:
-            job = Job.from_config(tool_name, command=cmd_str)
-        else:
-            job = Job(command=cmd_str)
+        job = Job.from_config(tool_name, command=cmd_str)
 
     # Set scheduler passthrough args
     if scheduler_args:
