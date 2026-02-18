@@ -101,8 +101,11 @@ Cancel a job:
 Configuration-driven jobs
 -------------------------
 
-``Job.from_config()`` merges your config ``[defaults]`` with a named ``[types.<name>]``
-or ``[tools.<name>]`` section, then applies overrides you pass in code.
+``Job.from_config()`` merges your config ``[defaults]`` with a named
+``[tools.<name>]`` or ``[types.<name>]`` section, then applies any overrides
+you pass in code.  Use the ``tool`` positional argument to look up a
+``[tools.*]`` entry, or the ``job_type`` keyword to look up a ``[types.*]``
+entry.  When neither is given, only ``[defaults]`` are applied.
 
 .. code-block:: python
 
@@ -111,7 +114,15 @@ or ``[tools.<name>]`` section, then applies overrides you pass in code.
    # Explicitly load a config file for this process (optional)
    reload_config("./hpc-runner.toml")
 
-   job = Job.from_config("gpu", command="python train.py", cpu=8)
+   # Look up [types.gpu], merge with [defaults], override cpu
+   job = Job.from_config(command="python train.py", job_type="gpu", cpu=8)
+
+   # Look up [tools.python], merge with [defaults]
+   job = Job.from_config("python", command="python train.py")
+
+   # No tool/type — just [defaults]
+   job = Job.from_config(command="echo hello")
+
    result = job.submit()
 
 
@@ -134,7 +145,9 @@ At the low level, you can chain jobs by attaching a dependency to a new job:
 Pipelines (multi-step workflows)
 --------------------------------
 
-For larger workflows, use ``Pipeline`` to define steps and dependencies by name.
+For larger workflows, use ``Pipeline`` to define steps and dependencies by
+name.  When used as a context manager, the pipeline auto-submits on exit and
+results are available via the ``results`` property.
 
 .. code-block:: python
 
@@ -142,14 +155,121 @@ For larger workflows, use ``Pipeline`` to define steps and dependencies by name.
 
    with Pipeline("ml") as p:
        p.add("python preprocess.py", name="preprocess", cpu=8, mem="32G")
-       p.add("python train.py", name="train", depends_on=["preprocess"], queue="gpu.q")
+       p.add("python train.py", name="train", depends_on=["preprocess"])
        p.add("python evaluate.py", name="evaluate", depends_on=["train"])
 
-   results = p.submit()
+   # Auto-submitted when the with-block exits cleanly.
+   # Results are accessible on the pipeline object.
+   for name, result in p.results.items():
+       print(name, result.job_id, result.status)
+
    p.wait()
 
-   for step, res in results.items():
-       print(step, res.status, res.returncode)
+Without a context manager, call ``submit()`` explicitly:
+
+.. code-block:: python
+
+   p = Pipeline("ml")
+   p.add("make build", name="build")
+   p.add("make test", name="test", depends_on=["build"])
+
+   results = p.submit()          # must call manually
+   p.wait()
+
+Config-aware pipeline jobs
+^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+``Pipeline.add()`` creates jobs through ``Job.from_config()``, so every step
+picks up ``[defaults]`` automatically.  Use the ``tool`` or ``job_type``
+keyword arguments to pull in ``[tools.*]`` or ``[types.*]`` config:
+
+.. code-block:: python
+
+   with Pipeline("ml") as p:
+       # Picks up [tools.python] config (modules, cpu, etc.)
+       p.add("python preprocess.py", name="preprocess", tool="python")
+
+       # Picks up [types.gpu] config (queue, resources, etc.)
+       p.add("python train.py", name="train",
+             depends_on=["preprocess"], job_type="gpu")
+
+       # Only [defaults] — no tool or type
+       p.add("echo done", name="notify", depends_on=["train"])
+
+Keyword arguments override whatever comes from config:
+
+.. code-block:: python
+
+   # [types.gpu] sets cpu=8, but we want 16 for this step
+   p.add("python big_train.py", name="train", job_type="gpu", cpu=16)
+
+Per-job dependency types
+^^^^^^^^^^^^^^^^^^^^^^^^
+
+By default every dependency uses ``AFTEROK`` (run only if all parents
+succeed).  You can set a different dependency type per step:
+
+.. code-block:: python
+
+   from hpc_runner import DependencyType, Pipeline
+
+   with Pipeline("robust") as p:
+       p.add("python train.py", name="train")
+
+       # Only runs if train succeeds
+       p.add("python evaluate.py", name="evaluate",
+             depends_on=["train"],
+             dependency_type=DependencyType.AFTEROK)
+
+       # Runs regardless of success/failure (cleanup, notifications, etc.)
+       p.add("python notify.py", name="notify",
+             depends_on=["train"],
+             dependency_type=DependencyType.AFTERANY)
+
+Available types: ``AFTEROK``, ``AFTERANY``, ``AFTER``, ``AFTERNOTOK``.
+
+Choosing a scheduler
+^^^^^^^^^^^^^^^^^^^^
+
+By default the scheduler is auto-detected at submit time.  You can pin it at
+construction:
+
+.. code-block:: python
+
+   from hpc_runner import Pipeline, get_scheduler
+
+   sge = get_scheduler("sge")
+
+   with Pipeline("build", scheduler=sge) as p:
+       p.add("make build", name="build")
+
+Or pass it to ``submit()`` directly:
+
+.. code-block:: python
+
+   p = Pipeline("build")
+   p.add("make build", name="build")
+   p.submit(scheduler=sge)
+
+Handling submission failures
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+If a scheduler error interrupts submission partway through, the successfully
+submitted jobs are preserved.  Call ``submit()`` again to retry only the
+remaining jobs:
+
+.. code-block:: python
+
+   p = Pipeline("etl")
+   p.add("python extract.py", name="extract")
+   p.add("python transform.py", name="transform", depends_on=["extract"])
+   p.add("python load.py", name="load", depends_on=["transform"])
+
+   try:
+       p.submit()
+   except RuntimeError:
+       # extract submitted, transform failed — fix the issue, then:
+       p.submit()   # skips extract, retries transform and load
 
 
 Array jobs
@@ -167,4 +287,3 @@ Use ``JobArray`` when you want a scheduler array job (SGE: ``qsub -t``):
 
    statuses = array_result.wait()
    print("completed:", sum(1 for s in statuses.values() if s.name == "COMPLETED"))
-
