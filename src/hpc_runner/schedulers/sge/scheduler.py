@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import subprocess
 import tempfile
@@ -10,6 +11,8 @@ import xml.etree.ElementTree as ET
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
+
+logger = logging.getLogger(__name__)
 
 from hpc_runner.core.config import get_config
 from hpc_runner.core.job_info import JobInfo
@@ -280,9 +283,7 @@ class SGEScheduler(BaseScheduler):
         script_path.chmod(0o755)
 
         if keep_script:
-            import sys
-
-            print(f"Script saved: {script_path}", file=sys.stderr)
+            logger.debug("Script saved: %s", script_path)
 
         workdir = Path(job.workdir).resolve() if job.workdir else None
 
@@ -330,10 +331,7 @@ class SGEScheduler(BaseScheduler):
         script_path.chmod(0o755)
 
         if keep_script:
-            # Print script path for debugging
-            import sys
-
-            print(f"Script saved: {script_path}", file=sys.stderr)
+            logger.debug("Script saved: %s", script_path)
 
         # Build qrsh command with script path
         cmd = self._build_qrsh_command(job, str(script_path))
