@@ -1,3 +1,4 @@
+# ruff: noqa: E501
 """Pytest configuration and fixtures."""
 
 import os
@@ -6,6 +7,19 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
+
+import hpc_runner.core.config as _config_mod
+
+
+@pytest.fixture(autouse=True)
+def _isolate_config_cache():
+    """Clear the global config cache before and after every test.
+
+    Prevents any test from polluting others via the cached HPCConfig.
+    """
+    _config_mod._cached_config = None
+    yield
+    _config_mod._cached_config = None
 
 
 @pytest.fixture
@@ -19,6 +33,7 @@ def temp_dir():
 def mock_sge_commands():
     """Mock SGE commands (qsub, qstat, etc.)."""
     with patch("subprocess.run") as mock_run:
+
         def side_effect(cmd, *args, **kwargs):
             result = MagicMock()
             result.returncode = 0
@@ -92,7 +107,7 @@ exit_status  0
 @pytest.fixture
 def sample_config(temp_dir):
     """Create a sample configuration file."""
-    config_content = '''
+    config_content = """
 [defaults]
 cpu = 2
 mem = "8G"
@@ -109,7 +124,7 @@ modules = ["python/3.11"]
 [types.gpu]
 queue = "gpu"
 resources = [{name = "gpu", value = 1}]
-'''
+"""
     config_file = temp_dir / "hpc-runner.toml"
     config_file.write_text(config_content)
     return config_file

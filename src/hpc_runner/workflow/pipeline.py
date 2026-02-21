@@ -60,7 +60,6 @@ class Pipeline:
         name: str | None = None,
         depends_on: list[str | PipelineJob] | None = None,
         *,
-        tool: str | None = None,
         job_type: str | None = None,
         dependency_type: DependencyType = DependencyType.AFTEROK,
         **job_kwargs: Any,
@@ -71,7 +70,6 @@ class Pipeline:
             command: Command to execute
             name: Job name (auto-generated if None)
             depends_on: List of job names or PipelineJob objects
-            tool: Tool name for config lookup (e.g., "python")
             job_type: Job type for config lookup (e.g., "gpu")
             dependency_type: How this job depends on its parents
             **job_kwargs: Additional Job parameter overrides
@@ -82,7 +80,7 @@ class Pipeline:
         if name in self._name_map:
             raise ValueError(f"Job name '{name}' already exists in pipeline")
 
-        job = Job.from_config(tool, command=command, job_type=job_type, **job_kwargs)
+        job = Job(command, job_type=job_type, **job_kwargs)
         job.name = f"{self.name}_{name}"
 
         dependencies: list[PipelineJob] = []

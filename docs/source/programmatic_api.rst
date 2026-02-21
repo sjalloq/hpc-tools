@@ -101,11 +101,12 @@ Cancel a job:
 Configuration-driven jobs
 -------------------------
 
-``Job.from_config()`` merges your config ``[defaults]`` with a named
-``[tools.<name>]`` or ``[types.<name>]`` section, then applies any overrides
-you pass in code.  Use the ``tool`` positional argument to look up a
-``[tools.*]`` entry, or the ``job_type`` keyword to look up a ``[types.*]``
-entry.  When neither is given, only ``[defaults]`` are applied.
+``Job()`` is config-aware by default.  It auto-consults the TOML config
+hierarchy, merging ``[defaults]`` with a matched ``[tools.<name>]`` or
+``[types.<name>]`` section, then applies any explicit keyword arguments you
+pass.  The tool name is auto-detected from the command (first word, path
+stripped).  Use the ``job_type`` keyword to look up a ``[types.*]`` entry
+instead (this skips tool auto-detection).
 
 .. code-block:: python
 
@@ -114,14 +115,14 @@ entry.  When neither is given, only ``[defaults]`` are applied.
    # Explicitly load a config file for this process (optional)
    reload_config("./hpc-runner.toml")
 
+   # Auto-detects "python" from command → looks up [tools.python]
+   job = Job("python train.py", cpu=8)
+
    # Look up [types.gpu], merge with [defaults], override cpu
-   job = Job.from_config(command="python train.py", job_type="gpu", cpu=8)
+   job = Job("python train.py", job_type="gpu", cpu=8)
 
-   # Look up [tools.python], merge with [defaults]
-   job = Job.from_config("python", command="python train.py")
-
-   # No tool/type — just [defaults]
-   job = Job.from_config(command="echo hello")
+   # No matching tool — just [defaults]
+   job = Job("echo hello")
 
    result = job.submit()
 
@@ -179,21 +180,21 @@ Without a context manager, call ``submit()`` explicitly:
 Config-aware pipeline jobs
 ^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-``Pipeline.add()`` creates jobs through ``Job.from_config()``, so every step
-picks up ``[defaults]`` automatically.  Use the ``tool`` or ``job_type``
-keyword arguments to pull in ``[tools.*]`` or ``[types.*]`` config:
+``Pipeline.add()`` creates jobs through ``Job()``, so every step picks up
+``[defaults]`` automatically and the tool is auto-detected from the command.
+Use the ``job_type`` keyword to pull in ``[types.*]`` config instead:
 
 .. code-block:: python
 
    with Pipeline("ml") as p:
-       # Picks up [tools.python] config (modules, cpu, etc.)
-       p.add("python preprocess.py", name="preprocess", tool="python")
+       # Auto-detects "python" → picks up [tools.python] config
+       p.add("python preprocess.py", name="preprocess")
 
        # Picks up [types.gpu] config (queue, resources, etc.)
        p.add("python train.py", name="train",
              depends_on=["preprocess"], job_type="gpu")
 
-       # Only [defaults] — no tool or type
+       # Only [defaults] — no matching tool or type
        p.add("echo done", name="notify", depends_on=["train"])
 
 Keyword arguments override whatever comes from config:

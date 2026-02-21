@@ -1,9 +1,9 @@
 """Tests for Job model."""
 
 import os
+from unittest.mock import patch
 
-import pytest
-
+from hpc_runner.core.config import HPCConfig
 from hpc_runner.core.job import Job
 from hpc_runner.core.resources import ResourceSet
 
@@ -111,3 +111,125 @@ class TestJobDependencies:
         returned = job.after(result)
 
         assert returned is job
+
+
+class TestJobConfigAware:
+    """Tests for config-aware Job() construction."""
+
+    def _make_config(
+        self,
+        defaults: dict | None = None,
+        tools: dict | None = None,
+        types: dict | None = None,
+    ) -> HPCConfig:
+        return HPCConfig(
+            defaults=defaults or {},
+            tools=tools or {},
+            types=types or {},
+        )
+
+    def test_defaults_applied(self):
+        """[defaults] are picked up by Job()."""
+        cfg = self._make_config(defaults={"cpu": 2, "mem": "8G", "queue": "batch"})
+        with patch("hpc_runner.core.config.get_config", return_value=cfg):
+            job = Job(command="echo hello")
+        assert job.cpu == 2
+        assert job.mem == "8G"
+        assert job.queue == "batch"
+
+    def test_tool_auto_detected(self):
+        """Tool extracted from command is matched to [tools.*]."""
+        cfg = self._make_config(
+            tools={"python": {"cpu": 4, "modules": ["python/3.11"]}},
+        )
+        with patch("hpc_runner.core.config.get_config", return_value=cfg):
+            job = Job(command="python train.py")
+        assert job.cpu == 4
+        assert job.modules == ["python/3.11"]
+
+    def test_tool_with_path_stripped(self):
+        """/usr/bin/python → python for tool lookup."""
+        cfg = self._make_config(
+            tools={"python": {"cpu": 8}},
+        )
+        with patch("hpc_runner.core.config.get_config", return_value=cfg):
+            job = Job(command="/usr/bin/python script.py")
+        assert job.cpu == 8
+
+    def test_job_type_config_applied(self):
+        """job_type= pulls [types.*] config."""
+        cfg = self._make_config(
+            types={"gpu": {"queue": "gpu.q", "resources": [{"name": "gpu", "value": 1}]}},
+        )
+        with patch("hpc_runner.core.config.get_config", return_value=cfg):
+            job = Job(command="python train.py", job_type="gpu")
+        assert job.queue == "gpu.q"
+        assert len(job.resources) == 1
+
+    def test_job_type_skips_tool_matching(self):
+        """When job_type is given, tool auto-detect is skipped."""
+        cfg = self._make_config(
+            tools={"python": {"cpu": 99}},
+            types={"sim": {"cpu": 2}},
+        )
+        with patch("hpc_runner.core.config.get_config", return_value=cfg):
+            job = Job(command="python run.py", job_type="sim")
+        assert job.cpu == 2  # from types.sim, not tools.python
+
+    def test_kwargs_override_config(self):
+        """Explicit kwargs beat config values."""
+        cfg = self._make_config(
+            defaults={"cpu": 2, "mem": "4G"},
+        )
+        with patch("hpc_runner.core.config.get_config", return_value=cfg):
+            job = Job(command="echo hello", cpu=16, mem="64G")
+        assert job.cpu == 16
+        assert job.mem == "64G"
+
+    def test_descriptor_defaults_survive(self):
+        """No config + no kwargs → descriptor defaults."""
+        cfg = self._make_config()
+        with patch("hpc_runner.core.config.get_config", return_value=cfg):
+            job = Job(command="echo hello")
+        assert job.inherit_env is True
+        assert job.shell == "/bin/bash"
+        assert job.use_cwd is True
+
+    def test_config_overrides_descriptor_defaults(self):
+        """Config can override shell, inherit_env, use_cwd."""
+        cfg = self._make_config(
+            defaults={"shell": "/bin/zsh", "inherit_env": False, "use_cwd": False},
+        )
+        with patch("hpc_runner.core.config.get_config", return_value=cfg):
+            job = Job(command="echo hello")
+        assert job.shell == "/bin/zsh"
+        assert job.inherit_env is False
+        assert job.use_cwd is False
+
+    def test_no_config_files_is_fine(self):
+        """Works with completely empty config."""
+        cfg = self._make_config()
+        with patch("hpc_runner.core.config.get_config", return_value=cfg):
+            job = Job(command="echo hello")
+        assert job.command == "echo hello"
+        assert job.name is not None
+
+    def test_config_command_key_ignored(self):
+        """A 'command' key in config is stripped — command always comes from caller."""
+        cfg = self._make_config(
+            defaults={"command": "should be ignored", "cpu": 2},
+        )
+        with patch("hpc_runner.core.config.get_config", return_value=cfg):
+            job = Job(command="echo real")
+        assert job.command == "echo real"
+        assert job.cpu == 2
+
+    def test_unknown_tool_gets_defaults_only(self):
+        """Unrecognised tool falls back to [defaults]."""
+        cfg = self._make_config(
+            defaults={"cpu": 1},
+            tools={"python": {"cpu": 8}},
+        )
+        with patch("hpc_runner.core.config.get_config", return_value=cfg):
+            job = Job(command="unknown_tool arg1")
+        assert job.cpu == 1

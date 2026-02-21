@@ -1,6 +1,5 @@
 """Run command - submit jobs to the scheduler."""
 
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 import rich_click as click
@@ -54,7 +53,7 @@ def _parse_args(args: tuple[str, ...]) -> tuple[list[str], list[str]]:
 @click.option(
     "--inherit-env/--no-inherit-env",
     "inherit_env",
-    default=True,
+    default=None,
     help="Inherit environment variables",
 )
 @click.option("--interactive", is_flag=True, help="Run interactively (srun/qrsh)")
@@ -80,7 +79,7 @@ def run(
     stdout: str | None,
     array: str | None,
     depend: str | None,
-    inherit_env: bool,
+    inherit_env: bool | None,
     interactive: bool,
     local: bool,
     dry_run: bool,
@@ -125,46 +124,25 @@ def run(
     scheduler_name = "local" if local else ctx.scheduler
     scheduler = get_scheduler(scheduler_name)
 
-    # Create job from config or parameters
-    # --job-type explicitly specifies a type, otherwise auto-detect tool from command
-    if job_type:
-        job = Job.from_config(command=cmd_str, job_type=job_type)
-    else:
-        tool_name = Path(command_parts[0]).name  # Strip path, get basename
-        job = Job.from_config(tool_name, command=cmd_str)
-
-    # Set scheduler passthrough args
-    if scheduler_args:
-        job.raw_args = scheduler_args
-
-    # Apply CLI overrides
-    if job_name:
-        job.name = job_name
-    if cpu:
-        job.cpu = cpu
-    if mem:
-        job.mem = mem
-    if time_limit:
-        job.time = time_limit
-    if queue:
-        job.queue = queue
-    if nodes:
-        job.nodes = nodes
-    if ntasks:
-        job.tasks = ntasks
-    if directory:
-        job.workdir = directory
-    if modules:
-        job.modules = list(modules)
-    if stderr:
-        job.stderr = stderr
-    if stdout:
-        job.stdout = stdout
-    if depend:
-        job.dependency = depend
-
-    # inherit_env is always set (has a default), so always apply it
-    job.inherit_env = inherit_env
+    # Create job — Job() auto-consults TOML config hierarchy
+    job = Job(
+        command=cmd_str,
+        job_type=job_type,
+        name=job_name,
+        cpu=cpu,
+        mem=mem,
+        time=time_limit,
+        queue=queue,
+        nodes=nodes,
+        tasks=ntasks,
+        workdir=directory,
+        modules=list(modules) if modules else None,
+        stderr=stderr,
+        stdout=stdout,
+        inherit_env=inherit_env,
+        dependency=depend,
+        raw_args=scheduler_args or None,
+    )
 
     # Handle array jobs
     if array:

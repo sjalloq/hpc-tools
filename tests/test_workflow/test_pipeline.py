@@ -227,14 +227,14 @@ class TestPipelineConfig:
         assert job.job.mem == "8G"
 
     def test_add_job_with_tool(self):
-        """Jobs created with tool= pick up [tools.<name>] config."""
+        """Tool auto-detected from command picks up [tools.<name>] config."""
         config = HPCConfig(
             defaults={"cpu": 1},
             tools={"python": {"cpu": 4, "modules": ["python/3.11"]}},
         )
         with patch("hpc_runner.core.config.get_config", return_value=config):
             p = Pipeline()
-            job = p.add("python script.py", name="step1", tool="python")
+            job = p.add("python script.py", name="step1")
 
         assert job.job.cpu == 4
         assert job.job.modules == ["python/3.11"]

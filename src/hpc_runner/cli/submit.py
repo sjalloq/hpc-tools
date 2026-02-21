@@ -7,7 +7,6 @@ options have single-letter shortcuts for quick interactive use.
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 import rich_click as click
@@ -75,26 +74,17 @@ def submit(
     # Auto-detect scheduler
     scheduler = get_scheduler()
 
-    # Create job from config or auto-detect tool from command
-    if job_type:
-        job = Job.from_config(command=cmd_str, job_type=job_type)
-    else:
-        tool_name = Path(args[0]).name
-        job = Job.from_config(tool_name, command=cmd_str)
-
-    # Apply CLI overrides
-    if job_name:
-        job.name = job_name
-    if cpu:
-        job.cpu = cpu
-    if mem:
-        job.mem = mem
-    if time_limit:
-        job.time = time_limit
-    if queue:
-        job.queue = queue
-    if depend:
-        job.dependency = depend
+    # Create job — Job() auto-consults TOML config hierarchy
+    job = Job(
+        command=cmd_str,
+        job_type=job_type,
+        name=job_name,
+        cpu=cpu,
+        mem=mem,
+        time=time_limit,
+        queue=queue,
+        dependency=depend,
+    )
 
     # Parse -e KEY=VAL entries
     for entry in env:

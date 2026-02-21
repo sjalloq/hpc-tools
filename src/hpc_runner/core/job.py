@@ -108,6 +108,7 @@ class Job:
         self,
         command: str | list[str],
         *,
+        job_type: str | None = None,
         name: str | None = None,
         cpu: int | None = None,
         mem: str | None = None,
@@ -118,10 +119,10 @@ class Job:
         tasks: int | None = None,
         stdout: str | None = None,
         stderr: str | None = None,
-        inherit_env: bool = True,
+        inherit_env: bool | None = None,
         workdir: str | None = None,
-        shell: str = "/bin/bash",
-        use_cwd: bool = True,
+        shell: str | None = None,
+        use_cwd: bool | None = None,
         venv: str | None = None,
         env_vars: dict[str, str] | None = None,
         env_prepend: dict[str, str] | None = None,
@@ -141,34 +142,108 @@ class Job:
         else:
             self.command = command
 
-        # Set descriptor-based attributes
-        self.name = name or self._generate_name()
-        self.cpu = cpu
-        self.mem = mem
-        self.time = time
-        self.queue = queue
-        self.priority = priority
-        self.nodes = nodes
-        self.tasks = tasks
-        self.stdout = stdout
-        self.stderr = stderr
-        self.inherit_env = inherit_env
-        self.workdir = workdir
-        self.shell = shell
-        self.use_cwd = use_cwd
+        # -----------------------------------------------------------------
+        # Config merge: [defaults] → tool/type config → explicit kwargs
+        # -----------------------------------------------------------------
+
+        from hpc_runner.core.config import get_config
+
+        config = get_config()
+
+        if job_type is not None:
+            job_config = config.get_job_config(job_type, namespace="types")
+        else:
+            job_config = config.get_tool_config(self.command)
+
+        # Command always comes from the caller, never from config
+        job_config.pop("command", None)
+
+        # Build config_overrides from non-None kwargs (descriptor + template
+        # attrs only — per-invocation attrs like raw_args and dependency are
+        # handled separately below and never come from config).
+        config_overrides: dict[str, Any] = {}
+        for key, val in {
+            "name": name,
+            "cpu": cpu,
+            "mem": mem,
+            "time": time,
+            "queue": queue,
+            "priority": priority,
+            "nodes": nodes,
+            "tasks": tasks,
+            "stdout": stdout,
+            "stderr": stderr,
+            "inherit_env": inherit_env,
+            "workdir": workdir,
+            "shell": shell,
+            "use_cwd": use_cwd,
+            "venv": venv,
+            "env_vars": env_vars,
+            "env_prepend": env_prepend,
+            "env_append": env_append,
+            "modules": modules,
+            "modules_path": modules_path,
+        }.items():
+            if val is not None:
+                config_overrides[key] = val
+
+        job_config.update(config_overrides)
+
+        # -----------------------------------------------------------------
+        # Attribute assignment from merged config
+        # -----------------------------------------------------------------
+
+        # Name: auto-generate if not in config or kwargs
+        self.name = job_config.get("name") or self._generate_name()
+
+        # Descriptor-based attributes: only set if present in merged config,
+        # otherwise the descriptor default applies (e.g. inherit_env=True)
+        for attr in (
+            "cpu",
+            "mem",
+            "time",
+            "queue",
+            "priority",
+            "nodes",
+            "tasks",
+            "stdout",
+            "stderr",
+            "inherit_env",
+            "workdir",
+            "shell",
+            "use_cwd",
+        ):
+            if attr in job_config:
+                setattr(self, attr, job_config[attr])
 
         # Virtual environment - auto-capture from VIRTUAL_ENV if not specified
-        if venv is None:
-            venv = os.environ.get("VIRTUAL_ENV")
-        self.venv = venv
+        venv_val = job_config.get("venv")
+        if venv_val is None:
+            venv_val = os.environ.get("VIRTUAL_ENV")
+        self.venv = venv_val
 
         # Non-descriptor attributes
-        self.env_vars: dict[str, str] = env_vars or {}
-        self.env_prepend: dict[str, str] = env_prepend or {}
-        self.env_append: dict[str, str] = env_append or {}
-        self.modules: list[str] = modules or []
-        self.modules_path: list[str] = modules_path or []
+        self.env_vars: dict[str, str] = job_config.get("env_vars") or {}
+        self.env_prepend: dict[str, str] = job_config.get("env_prepend") or {}
+        self.env_append: dict[str, str] = job_config.get("env_append") or {}
+        self.modules: list[str] = job_config.get("modules") or []
+        self.modules_path: list[str] = job_config.get("modules_path") or []
+
+        # Handle resources list-of-dicts -> ResourceSet conversion from config.
+        if resources is None and "resources" in job_config:
+            raw_resources = job_config.pop("resources")
+            if isinstance(raw_resources, list):
+                resources = ResourceSet()
+                for r in raw_resources:
+                    resources.add(r["name"], r["value"])
+            elif isinstance(raw_resources, ResourceSet):
+                resources = raw_resources
+        else:
+            job_config.pop("resources", None)
+
         self.resources: ResourceSet = resources or ResourceSet()
+
+        # Per-invocation attrs — straight from kwargs, never from config.
         self.raw_args: list[str] = raw_args or []
         self.sge_args: list[str] = sge_args or []
         self.slurm_args: list[str] = slurm_args or []
@@ -214,64 +289,6 @@ class Job:
         if scheduler is None:
             scheduler = get_scheduler()
         return scheduler.submit(self, keep_script=keep_script)
-
-    @classmethod
-    def from_config(
-        cls,
-        tool: str | None = None,
-        command: str | None = None,
-        *,
-        job_type: str | None = None,
-        **overrides: Any,
-    ) -> Job:
-        """Create a job from configuration.
-
-        Looks up job settings from the config file by tool name or job type,
-        then applies any overrides.  If neither *tool* nor *job_type* is
-        given, only ``[defaults]`` are applied.
-
-        Args:
-            tool: Tool name (e.g., "python", "make") from ``[tools]``.
-            command: Command to run. If None, uses command from config.
-            job_type: Job type (e.g., "gpu") from ``[types]``.
-            **overrides: Override any job parameters
-
-        Returns:
-            Job configured according to config file + overrides
-
-        Example:
-            # Config file has [types.gpu] with queue="gpu", resources=[{gpu=1}]
-            job = Job.from_config(job_type="gpu", command="python train.py")
-        """
-        import inspect
-
-        from hpc_runner.core.config import get_config
-
-        config = get_config()
-
-        if job_type is not None:
-            job_config = config.get_job_config(job_type, namespace="types")
-        elif tool is not None:
-            job_config = config.get_job_config(tool, namespace="tools")
-        else:
-            job_config = config.defaults.copy()
-
-        if command is not None:
-            job_config["command"] = command
-        job_config.update(overrides)
-
-        # Handle resources specially
-        if "resources" in job_config and isinstance(job_config["resources"], list):
-            resource_set = ResourceSet()
-            for r in job_config["resources"]:
-                resource_set.add(r["name"], r["value"])
-            job_config["resources"] = resource_set
-
-        # Filter to only valid Job parameters
-        valid_params = set(inspect.signature(cls.__init__).parameters.keys()) - {"self"}
-        job_config = {k: v for k, v in job_config.items() if k in valid_params}
-
-        return cls(**job_config)
 
     # =========================================================================
     # Attribute Iteration
