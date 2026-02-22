@@ -30,7 +30,9 @@ Top-level sections
 Configuration supports four top-level namespaces:
 
 - ``[defaults]``: baseline job settings applied to all jobs
-- ``[tools.<name>]``: overrides keyed by tool name (e.g., ``python``, ``make``)
+- ``[tools.<name>]``: overrides keyed by tool name (e.g., ``python``, ``make``).
+  Each tool entry can also contain an ``[tools.<name>.options]`` sub-table for
+  argument-specific specialisation (see :ref:`tool-option-specialisation`).
 - ``[types.<name>]``: named job profiles (e.g., ``gpu``, ``interactive``)
 - ``[schedulers.<name>]``: scheduler-specific behavior (e.g., SGE resource names)
 
@@ -38,16 +40,22 @@ Configuration supports four top-level namespaces:
 How jobs pick up config
 -----------------------
 
-When creating a job from config, hpc-runner merges values in this order:
+Every ``Job()`` automatically consults the config hierarchy.  Values merge in
+this order:
 
-1. start from ``[defaults]``
-2. merge either ``[types.<name>]`` **or** ``[tools.<name>]`` (types take precedence)
-
-Then CLI options override whatever came from config.
+1. Start from ``[defaults]``.
+2. If ``job_type`` is given, merge ``[types.<name>]``.
+   Otherwise auto-detect the tool name from the command (first word, path
+   stripped) and merge ``[tools.<name>]`` if it exists.
+3. If ``[tools.<name>.options]`` entries exist and the command arguments match
+   one (see :ref:`tool-option-specialisation`), merge that option config on top.
+4. CLI options (or explicit keyword arguments) override whatever came from
+   config.
 
 .. note::
 
-   List values use a "merge by union" strategy.
+   List values use a "merge by union" strategy — items from both the base and
+   override are combined, preserving order and deduplicating.
    If you need to *replace* a list instead of merging, use a leading ``"-"`` entry
    to reset it, e.g. ``modules = ["-", "python/3.11"]``.
 
@@ -59,6 +67,62 @@ SGE mapping notes
 - ``cpu`` maps to SGE parallel environment slots: ``qsub -pe <parallel_environment> <cpu>``.
 - ``mem`` and ``time`` map to SGE hard resources via ``-l <resource>=<value>``, where the
   resource names are configured under ``[schedulers.sge]``.
+
+
+.. _tool-option-specialisation:
+
+Tool option specialisation
+--------------------------
+
+A tool entry can define ``[tools.<name>.options]`` sub-entries that match
+against arguments in the command string.  When matched, the option entry is
+merged on top of the base tool config.  This allows a single tool to have
+different environments depending on how it is invoked.
+
+**TOML syntax:**
+
+.. code-block:: toml
+
+   [tools.fusesoc]
+   cpu = 2
+   modules = ["fusesoc/2.0"]
+
+   [tools.fusesoc.options."--tool slang"]
+   mem = "16G"
+   modules = ["slang/0.9"]          # union-merged → ["fusesoc/2.0", "slang/0.9"]
+
+   [tools.fusesoc.options."--tool verilator"]
+   cpu = 4
+   modules = ["verilator/5.0"]      # union-merged → ["fusesoc/2.0", "verilator/5.0"]
+
+   [tools.mytool]
+   cpu = 2
+
+   [tools.mytool.options."--gui"]
+   queue = "interactive.q"
+
+**Matching rules:**
+
+1. The command arguments (everything after the tool name) are tokenised.
+2. ``--flag=value`` is normalised to ``--flag value`` before matching (so
+   ``--tool=slang`` and ``--tool slang`` are equivalent).
+3. Each option key is tokenised the same way and checked for a **contiguous
+   subsequence** match against the command tokens.
+4. **First match wins** — keys are checked in TOML insertion order, so place
+   more specific patterns before less specific ones.
+5. No partial value matching: ``"--tool slang"`` does **not** match
+   ``--tool slang-lint``.
+6. Short flags (e.g. ``"-g"``) match literally — there is no automatic
+   expansion of short to long options.
+
+**Usage:**
+
+.. code-block:: bash
+
+   submit fusesoc run --tool slang core:v:n     # mem=16G, modules includes slang/0.9
+   submit fusesoc run --tool=slang core:v:n     # same (= normalised)
+   submit fusesoc run --tool verilator core     # cpu=4, modules includes verilator/5.0
+   submit fusesoc run core:v:n                  # no match — base fusesoc config only
 
 
 Example: fully populated config (standalone file)
@@ -116,6 +180,17 @@ Save as ``hpc-runner.toml`` (or ``~/.config/hpc-runner/config.toml``):
      { name = "tmpfs", value = "8G" }
    ]
 
+   [tools.fusesoc]
+   modules = ["fusesoc/2.0"]
+
+   [tools.fusesoc.options."--tool slang"]
+   mem = "16G"
+   modules = ["slang/0.9"]
+
+   [tools.fusesoc.options."--tool verilator"]
+   cpu = 4
+   modules = ["verilator/5.0"]
+
    [types.interactive]
    queue = "interactive.q"
    time = "8:00:00"
@@ -141,4 +216,3 @@ To embed the same config in ``pyproject.toml``, nest the same keys under:
 
    [tool.hpc-runner]
    # ... same content as the standalone file ...
-

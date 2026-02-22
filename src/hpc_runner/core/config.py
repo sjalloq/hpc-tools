@@ -30,7 +30,44 @@ class HPCConfig:
 
     _source_paths: list[Path] = field(default_factory=list, repr=False)
 
-    def get_job_config(self, name: str, *, namespace: str = "tools") -> dict[str, Any]:
+    def get_type_config(self, job_type: str) -> dict[str, Any]:
+        """Get configuration for a job type.
+
+        Args:
+            job_type: Type name to look up in ``[types]``.
+
+        Returns:
+            Defaults merged with the matching type entry, or just
+            defaults if *job_type* is not found.
+        """
+        return self._get_job_config(job_type, namespace="types")
+
+    def get_tool_config(self, command: str) -> dict[str, Any]:
+        """Get configuration matching a command.
+
+        Extracts tool name from command, looks up base config, then checks
+        for option-specific overrides by matching against command arguments.
+        """
+        parts = command.split()
+        tool = Path(parts[0]).name
+
+        # Start with defaults merged with base tool config.
+        config = self._get_job_config(tool, namespace="tools")
+
+        # Check for option specialisation.
+        tool_section = self.tools.get(tool, {})
+        options = tool_section.get("options")
+        if options and len(parts) > 1:
+            cmd_tokens = _normalise_tokens(parts[1:])
+            for option_key, option_config in options.items():
+                key_tokens = _normalise_tokens(option_key)
+                if _match_contiguous(cmd_tokens, key_tokens):
+                    config = _merge(config, option_config)
+                    break  # First match wins
+
+        return config
+
+    def _get_job_config(self, name: str, *, namespace: str = "tools") -> dict[str, Any]:
         """Get merged configuration for a tool or type.
 
         Args:
@@ -46,24 +83,49 @@ class HPCConfig:
 
         section = self.types if namespace == "types" else self.tools
         if name in section:
-            config = _merge(config, section[name])
+            # Shallow copy to avoid mutating the original.
+            tool_config = section[name].copy()
+            tool_config.pop("options", None)  # Handled separately by get_tool_config
+            config = _merge(config, tool_config)
 
         return config
-
-    def get_tool_config(self, command: str) -> dict[str, Any]:
-        """Get configuration matching a command.
-
-        Extracts tool name from command and looks up config.
-        """
-        # Extract tool name (first word, strip path)
-        tool = command.split()[0]
-        tool = Path(tool).name
-
-        return self.get_job_config(tool, namespace="tools")
 
     def get_scheduler_config(self, scheduler: str) -> dict[str, Any]:
         """Get scheduler-specific configuration."""
         return self.schedulers.get(scheduler, {})
+
+
+def _normalise_tokens(args: str | list[str]) -> list[str]:
+    """Tokenise and normalise command arguments.
+
+    Splits --flag=value into separate tokens. Does not attempt to
+    interpret short options or combined flags.
+    """
+    if isinstance(args, str):
+        tokens = args.split()
+    else:
+        tokens = list(args)
+
+    normalised: list[str] = []
+    for token in tokens:
+        if token.startswith("--") and "=" in token:
+            flag, _, value = token.partition("=")
+            normalised.append(flag)
+            normalised.append(value)
+        else:
+            normalised.append(token)
+    return normalised
+
+
+def _match_contiguous(haystack: list[str], needle: list[str]) -> bool:
+    """Check if needle tokens appear as a contiguous sequence in haystack."""
+    if not needle:
+        return False
+    needle_len = len(needle)
+    for i in range(len(haystack) - needle_len + 1):
+        if haystack[i : i + needle_len] == needle:
+            return True
+    return False
 
 
 def _merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:

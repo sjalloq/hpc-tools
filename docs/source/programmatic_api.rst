@@ -108,6 +108,11 @@ pass.  The tool name is auto-detected from the command (first word, path
 stripped).  Use the ``job_type`` keyword to look up a ``[types.*]`` entry
 instead (this skips tool auto-detection).
 
+If the tool has ``[tools.<name>.options]`` entries defined in the config, the
+**full command string** (not just the first word) is used to match
+argument-specific overrides.  See :ref:`tool-option-specialisation` for the
+matching rules.
+
 .. code-block:: python
 
    from hpc_runner import Job, reload_config
@@ -123,6 +128,10 @@ instead (this skips tool auto-detection).
 
    # No matching tool — just [defaults]
    job = Job("echo hello")
+
+   # With [tools.fusesoc.options."--tool slang"] in config, the command
+   # arguments trigger option-specific overrides automatically:
+   job = Job("fusesoc run --tool slang core:v:n")
 
    result = job.submit()
 

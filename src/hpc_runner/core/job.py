@@ -151,7 +151,7 @@ class Job:
         config = get_config()
 
         if job_type is not None:
-            job_config = config.get_job_config(job_type, namespace="types")
+            job_config = config.get_type_config(job_type)
         else:
             job_config = config.get_tool_config(self.command)
 

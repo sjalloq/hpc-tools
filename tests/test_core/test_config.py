@@ -8,7 +8,9 @@ from hpc_runner.core.config import (
     HPC_CONFIG_ENV_VAR,
     HPCConfig,
     _expand_env_vars,
+    _match_contiguous,
     _merge,
+    _normalise_tokens,
     _resolve_extends,
     find_config_file,
     find_config_files,
@@ -26,58 +28,58 @@ class TestHPCConfig:
         assert config.tools == {}
         assert config.types == {}
 
-    def test_get_job_config_defaults(self):
-        """Test getting job config falls back to defaults."""
+    def test_get_tool_config_defaults(self):
+        """Test getting tool config falls back to defaults."""
         config = HPCConfig(defaults={"cpu": 2, "mem": "8G"})
-        job_config = config.get_job_config("unknown_tool")
+        job_config = config.get_tool_config("unknown_tool")
 
         assert job_config["cpu"] == 2
         assert job_config["mem"] == "8G"
 
-    def test_get_job_config_tool(self):
-        """Test getting job config for a tool."""
+    def test_get_tool_config_tool(self):
+        """Test getting tool config for a tool."""
         config = HPCConfig(
             defaults={"cpu": 1, "mem": "4G"},
             tools={"python": {"cpu": 4, "modules": ["python/3.11"]}},
         )
-        job_config = config.get_job_config("python", namespace="tools")
+        job_config = config.get_tool_config("python script.py")
 
         assert job_config["cpu"] == 4  # Overridden
         assert job_config["mem"] == "4G"  # From defaults
         assert job_config["modules"] == ["python/3.11"]
 
-    def test_get_job_config_type(self):
-        """Test getting job config for a type."""
+    def test_get_type_config(self):
+        """Test getting type config for a type."""
         config = HPCConfig(
             defaults={"cpu": 1},
             types={"gpu": {"queue": "gpu", "resources": [{"name": "gpu", "value": 1}]}},
         )
-        job_config = config.get_job_config("gpu", namespace="types")
+        job_config = config.get_type_config("gpu")
 
         assert job_config["cpu"] == 1  # From defaults
         assert job_config["queue"] == "gpu"
 
-    def test_get_job_config_type_not_found_in_tools_namespace(self):
-        """Test that a type name is NOT matched when namespace='tools'."""
+    def test_type_not_found_via_tool_config(self):
+        """Test that a type name is NOT matched via get_tool_config."""
         config = HPCConfig(
             defaults={"cpu": 1},
             tools={"python": {"cpu": 4}},
             types={"gpu": {"queue": "gpu"}},
         )
-        job_config = config.get_job_config("gpu", namespace="tools")
+        job_config = config.get_tool_config("gpu")
 
         # Should return only defaults — "gpu" is a type, not a tool
         assert job_config == {"cpu": 1}
         assert "queue" not in job_config
 
-    def test_get_job_config_tool_not_found_in_types_namespace(self):
-        """Test that a tool name is NOT matched when namespace='types'."""
+    def test_tool_not_found_via_type_config(self):
+        """Test that a tool name is NOT matched via get_type_config."""
         config = HPCConfig(
             defaults={"cpu": 1},
             tools={"python": {"cpu": 4}},
             types={"gpu": {"queue": "gpu"}},
         )
-        job_config = config.get_job_config("python", namespace="types")
+        job_config = config.get_type_config("python")
 
         # Should return only defaults — "python" is a tool, not a type
         assert job_config == {"cpu": 1}
@@ -349,13 +351,13 @@ class TestConfigMerging:
     def test_load_config_merges_extends(self, temp_dir):
         """Test that extends configs are merged correctly."""
         base_config = temp_dir / "base.toml"
-        base_config.write_text(
-            "[defaults]\ncpu = 1\nmem = \"4G\"\n[schedulers.sge]\npe = \"smp\"\n"
-        )
+        base_config.write_text('[defaults]\ncpu = 1\nmem = "4G"\n[schedulers.sge]\npe = "smp"\n')
 
         child_config = temp_dir / "child.toml"
         child_config.write_text(
-            f'extends = "{base_config}"\n[defaults]\ncpu = 4\n[tools.python]\nmodules = ["python/3.11"]\n'
+            f'extends = "{base_config}"\n'
+            "[defaults]\ncpu = 4\n"
+            '[tools.python]\nmodules = ["python/3.11"]\n'
         )
 
         config = load_config(child_config)
@@ -393,3 +395,237 @@ class TestConfigMerging:
 
         assert len(config._source_paths) == 1
         assert config._source_paths[0] == config_file.resolve()
+
+
+class TestToolOptionMatching:
+    """Tests for tool option matching."""
+
+    def test_no_options_unchanged(self):
+        """Tool without options works as before."""
+        config = HPCConfig(
+            defaults={"cpu": 1},
+            tools={"python": {"cpu": 4}},
+        )
+        result = config.get_tool_config("python script.py")
+        assert result["cpu"] == 4
+
+    def test_flag_match(self):
+        """Boolean flag option matches."""
+        config = HPCConfig(
+            defaults={"cpu": 1},
+            tools={
+                "mytool": {
+                    "cpu": 2,
+                    "options": {
+                        "--gui": {"queue": "interactive.q"},
+                    },
+                }
+            },
+        )
+        result = config.get_tool_config("mytool --gui input.dat")
+        assert result["cpu"] == 2
+        assert result["queue"] == "interactive.q"
+
+    def test_flag_value_match(self):
+        """Flag with value option matches."""
+        config = HPCConfig(
+            defaults={"cpu": 1},
+            tools={
+                "fusesoc": {
+                    "modules": ["fusesoc/2.0"],
+                    "options": {
+                        "--tool slang": {
+                            "mem": "16G",
+                            "modules": ["slang/0.9"],
+                        },
+                    },
+                }
+            },
+        )
+        result = config.get_tool_config("fusesoc run --target lint --tool slang v:l:n:v")
+        assert result["mem"] == "16G"
+        assert "slang/0.9" in result["modules"]
+        assert "fusesoc/2.0" in result["modules"]
+
+    def test_equals_form_normalised(self):
+        """--tool=slang matches option key '--tool slang'."""
+        config = HPCConfig(
+            defaults={},
+            tools={
+                "fusesoc": {
+                    "options": {
+                        "--tool slang": {"mem": "16G"},
+                    },
+                }
+            },
+        )
+        result = config.get_tool_config("fusesoc run --tool=slang")
+        assert result["mem"] == "16G"
+
+    def test_no_partial_match(self):
+        """'--tool slang' must not match '--tool slang-lint'."""
+        config = HPCConfig(
+            defaults={},
+            tools={
+                "fusesoc": {
+                    "options": {
+                        "--tool slang": {"mem": "16G"},
+                    },
+                }
+            },
+        )
+        result = config.get_tool_config("fusesoc run --tool slang-lint")
+        assert "mem" not in result
+
+    def test_no_match_uses_base(self):
+        """When no option matches, base tool config is returned."""
+        config = HPCConfig(
+            defaults={"cpu": 1},
+            tools={
+                "mytool": {
+                    "cpu": 2,
+                    "options": {
+                        "--gui": {"queue": "interactive.q"},
+                    },
+                }
+            },
+        )
+        result = config.get_tool_config("mytool --batch input.dat")
+        assert result["cpu"] == 2
+        assert "queue" not in result
+
+    def test_first_match_wins(self):
+        """First matching option key wins."""
+        config = HPCConfig(
+            defaults={},
+            tools={
+                "fusesoc": {
+                    "options": {
+                        "--tool slang": {"mem": "16G"},
+                        "--tool": {"mem": "8G"},
+                    },
+                }
+            },
+        )
+        result = config.get_tool_config("fusesoc run --tool slang")
+        assert result["mem"] == "16G"
+
+    def test_option_merges_with_base(self):
+        """Option config merges on top of base, not replaces."""
+        config = HPCConfig(
+            defaults={"cpu": 1},
+            tools={
+                "fusesoc": {
+                    "cpu": 2,
+                    "modules": ["fusesoc/2.0"],
+                    "options": {
+                        "--tool slang": {"mem": "16G"},
+                    },
+                }
+            },
+        )
+        result = config.get_tool_config("fusesoc run --tool slang")
+        assert result["cpu"] == 2  # Inherited from base
+        assert result["mem"] == "16G"  # From option
+
+    def test_options_key_excluded_from_base(self):
+        """The 'options' key itself must not leak into job config."""
+        config = HPCConfig(
+            defaults={},
+            tools={
+                "mytool": {
+                    "cpu": 2,
+                    "options": {
+                        "--gui": {"queue": "interactive.q"},
+                    },
+                }
+            },
+        )
+        result = config.get_tool_config("mytool run")
+        assert "options" not in result
+
+    def test_short_flag_match(self):
+        """Short flags match literally — no magic expansion."""
+        config = HPCConfig(
+            defaults={},
+            tools={
+                "mytool": {
+                    "options": {
+                        "-g": {"queue": "interactive.q"},
+                    },
+                }
+            },
+        )
+        result = config.get_tool_config("mytool -g input.dat")
+        assert result["queue"] == "interactive.q"
+
+    def test_command_with_path(self):
+        """Tool name extraction strips path."""
+        config = HPCConfig(
+            defaults={},
+            tools={
+                "mytool": {
+                    "cpu": 4,
+                    "options": {
+                        "--gui": {"queue": "interactive.q"},
+                    },
+                }
+            },
+        )
+        result = config.get_tool_config("/usr/local/bin/mytool --gui")
+        assert result["cpu"] == 4
+        assert result["queue"] == "interactive.q"
+
+
+class TestNormaliseTokens:
+    """Tests for _normalise_tokens."""
+
+    def test_simple(self):
+        assert _normalise_tokens("--tool slang") == ["--tool", "slang"]
+
+    def test_equals_split(self):
+        assert _normalise_tokens("--tool=slang") == ["--tool", "slang"]
+
+    def test_mixed(self):
+        assert _normalise_tokens("--target lint --tool=slang -v") == [
+            "--target",
+            "lint",
+            "--tool",
+            "slang",
+            "-v",
+        ]
+
+    def test_short_flag_untouched(self):
+        assert _normalise_tokens("-t slang") == ["-t", "slang"]
+
+    def test_list_input(self):
+        assert _normalise_tokens(["--tool=slang", "-v"]) == [
+            "--tool",
+            "slang",
+            "-v",
+        ]
+
+
+class TestMatchContiguous:
+    """Tests for _match_contiguous."""
+
+    def test_match(self):
+        assert _match_contiguous(["a", "b", "c", "d"], ["b", "c"]) is True
+
+    def test_no_match(self):
+        assert _match_contiguous(["a", "b", "c", "d"], ["b", "d"]) is False
+
+    def test_single_token(self):
+        assert _match_contiguous(["--gui", "file"], ["--gui"]) is True
+
+    def test_empty_needle(self):
+        assert _match_contiguous(["a", "b"], []) is False
+
+    def test_needle_longer_than_haystack(self):
+        assert _match_contiguous(["a"], ["a", "b"]) is False
+
+    def test_at_end(self):
+        assert _match_contiguous(["a", "b", "c"], ["b", "c"]) is True
+
+    def test_at_start(self):
+        assert _match_contiguous(["a", "b", "c"], ["a", "b"]) is True

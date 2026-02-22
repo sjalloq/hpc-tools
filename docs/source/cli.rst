@@ -16,7 +16,8 @@ These options come before the subcommand:
 
 - ``--config PATH``: use an explicit config file (bypasses discovery)
 - ``--scheduler NAME``: force a scheduler (``sge``, ``slurm``, ``pbs``, ``local``)
-- ``--verbose``: extra debug output
+- ``--verbose``: enable debug-level logging (e.g. shows script paths when
+  ``--keep-script`` is used)
 
 
 ``hpc run``
@@ -39,7 +40,8 @@ Common options:
 - ``--interactive`` (SGE: qrsh)
 - ``--dry-run`` (render, don’t submit)
 - ``--wait`` (wait for completion)
-- ``--keep-script`` (debug: keep generated script)
+- ``--keep-script`` (keep generated script; path is logged at debug level —
+  use ``--verbose`` to see it)
 
 Scheduler passthrough
 ^^^^^^^^^^^^^^^^^^^^^
@@ -78,6 +80,10 @@ Examples:
 common options with short flags and **rejects unknown arguments** — there is
 no scheduler passthrough. Instead, scheduler-specific settings should be
 defined in the config file under ``[tools.*]`` or ``[types.*]``.
+
+If a tool has ``[tools.<name>.options]`` entries in the config, the command
+arguments are matched automatically to apply option-specific overrides (see
+:ref:`tool-option-specialisation`).
 
 Short options:
 
