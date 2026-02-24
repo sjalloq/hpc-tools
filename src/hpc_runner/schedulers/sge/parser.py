@@ -2,9 +2,10 @@
 
 import re
 import xml.etree.ElementTree as ET
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
+from hpc_runner.core.job_info import JobInfo
 from hpc_runner.core.result import JobStatus
 
 
@@ -285,3 +286,126 @@ def parse_qsub_output(output: str) -> str | None:
         return match.group(1)
 
     return None
+
+
+# =========================================================================
+# qacct multi-record parsing
+# =========================================================================
+
+_SEPARATOR_RE = re.compile(r"^=+$")
+
+# qacct timestamps: "Mon Feb 23 18:00:00 2026"
+_QACCT_TIME_FMT = "%a %b %d %H:%M:%S %Y"
+
+
+def parse_qacct_records(output: str) -> list[dict[str, Any]]:
+    """Split multi-record qacct output into a list of parsed dicts.
+
+    qacct separates records with lines of ``====…====``.  Each block is
+    parsed by :func:`parse_qacct_output`.
+    """
+    records: list[dict[str, Any]] = []
+    current_block: list[str] = []
+
+    for line in output.split("\n"):
+        if _SEPARATOR_RE.match(line.strip()):
+            if current_block:
+                record = parse_qacct_output("\n".join(current_block))
+                if record:
+                    records.append(record)
+                current_block = []
+        else:
+            current_block.append(line)
+
+    # Handle trailing block (no final separator)
+    if current_block:
+        record = parse_qacct_output("\n".join(current_block))
+        if record:
+            records.append(record)
+
+    return records
+
+
+def _parse_qacct_timestamp(value: str) -> datetime | None:
+    """Parse a qacct timestamp string into a :class:`datetime`.
+
+    Handles the standard ``"Mon Feb 23 18:00:00 2026"`` format.
+    """
+    try:
+        return datetime.strptime(value.strip(), _QACCT_TIME_FMT)
+    except ValueError:
+        return None
+
+
+def qacct_to_job_info(record: dict[str, Any]) -> JobInfo:
+    """Convert a single parsed qacct record dict to a :class:`JobInfo`.
+
+    Field mapping:
+
+    * ``jobnumber`` -> ``job_id``
+    * ``jobname`` -> ``name``
+    * ``owner`` -> ``user``
+    * ``exit_status`` -> ``exit_code`` / ``status``
+    * ``qname`` -> ``queue``
+    * ``hostname`` -> ``node``
+    * ``slots`` -> ``cpu``
+    * ``ru_wallclock`` -> ``runtime``
+    * ``qsub_time`` -> ``submit_time``
+    * ``start_time`` -> ``start_time``
+    * ``end_time`` -> ``end_time``
+    """
+    exit_status_str = record.get("exit_status", "")
+    try:
+        exit_code = int(exit_status_str)
+    except (ValueError, TypeError):
+        exit_code = None
+
+    if exit_code is not None:
+        status = JobStatus.COMPLETED if exit_code == 0 else JobStatus.FAILED
+    else:
+        status = JobStatus.UNKNOWN
+
+    # CPU slots
+    cpu: int | None = None
+    slots_str = record.get("slots")
+    if slots_str is not None:
+        try:
+            cpu = int(slots_str)
+        except (ValueError, TypeError):
+            pass
+
+    # Runtime from ru_wallclock (seconds as a float string)
+    runtime: timedelta | None = None
+    wallclock_str = record.get("ru_wallclock")
+    if wallclock_str is not None:
+        try:
+            runtime = timedelta(seconds=float(wallclock_str))
+        except (ValueError, TypeError):
+            pass
+
+    job_info = JobInfo(
+        job_id=record.get("jobnumber", ""),
+        name=record.get("jobname", ""),
+        user=record.get("owner", "unknown"),
+        status=status,
+        queue=record.get("qname"),
+        node=record.get("hostname"),
+        cpu=cpu,
+        exit_code=exit_code,
+        runtime=runtime,
+    )
+
+    # Timestamps
+    qsub_time = record.get("qsub_time")
+    if qsub_time:
+        job_info.submit_time = _parse_qacct_timestamp(qsub_time)
+
+    start_time = record.get("start_time")
+    if start_time:
+        job_info.start_time = _parse_qacct_timestamp(start_time)
+
+    end_time = record.get("end_time")
+    if end_time:
+        job_info.end_time = _parse_qacct_timestamp(end_time)
+
+    return job_info

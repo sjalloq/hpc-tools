@@ -12,8 +12,6 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
-logger = logging.getLogger(__name__)
-
 from hpc_runner.core.config import get_config
 from hpc_runner.core.job_info import JobInfo
 from hpc_runner.core.result import ArrayJobResult, JobResult, JobStatus
@@ -36,12 +34,16 @@ from hpc_runner.schedulers.sge.args import (
 )
 from hpc_runner.schedulers.sge.parser import (
     parse_qacct_output,
+    parse_qacct_records,
     parse_qstat_plain,
     parse_qstat_xml,
     parse_qsub_output,
+    qacct_to_job_info,
     state_to_status,
 )
 from hpc_runner.templates import render_template
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from hpc_runner.core.job import Job
@@ -571,9 +573,63 @@ class SGEScheduler(BaseScheduler):
     ) -> list[JobInfo]:
         """List completed SGE jobs from qacct.
 
-        TODO: Implement using qacct.
+        Args:
+            user: Filter by username. None = all users.
+            since: Only jobs ending after this time.
+            until: Only jobs ending before this time.
+            exit_code: Filter by exit code. None = all.
+            queue: Filter by queue name. None = all.
+            limit: Maximum number of results to return.
+
+        Returns:
+            List of JobInfo sorted by end_time descending.
+
+        Raises:
+            AccountingNotAvailable: If qacct is not installed.
         """
-        raise NotImplementedError("SGE list_completed_jobs() not yet implemented")
+        from hpc_runner.core.exceptions import AccountingNotAvailable
+
+        # Build qacct command
+        cmd = ["qacct", "-j"]
+        if user:
+            cmd.extend(["-o", user])
+
+        # qacct -b/-e use MM/DD/YYYY HH:MM:SS format
+        time_fmt = "%m/%d/%Y %H:%M:%S"
+        if since:
+            cmd.extend(["-b", since.strftime(time_fmt)])
+        if until:
+            cmd.extend(["-e", until.strftime(time_fmt)])
+
+        try:
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                errors="replace",
+                check=True,
+            )
+        except FileNotFoundError:
+            raise AccountingNotAvailable(
+                "qacct not found. SGE accounting is not available on this system."
+            )
+        except subprocess.CalledProcessError:
+            # No matching records
+            return []
+
+        records = parse_qacct_records(result.stdout)
+        jobs = [qacct_to_job_info(r) for r in records]
+
+        # Post-filter: qacct doesn't natively filter on exit_code or queue
+        if exit_code is not None:
+            jobs = [j for j in jobs if j.exit_code == exit_code]
+        if queue is not None:
+            jobs = [j for j in jobs if j.queue == queue]
+
+        # Sort by end_time descending (most recent first), None last
+        jobs.sort(key=lambda j: j.end_time or datetime.min, reverse=True)
+
+        return jobs[:limit]
 
     def has_accounting(self) -> bool:
         """Check if SGE accounting is available."""
