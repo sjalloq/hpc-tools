@@ -22,9 +22,13 @@ console = Console()
 
 
 @click.command(
-    context_settings={"help_option_names": ["-h", "--help"]},
+    context_settings={
+        "help_option_names": ["-h", "--help"],
+        "ignore_unknown_options": True,
+        "allow_interspersed_args": False,
+    },
 )
-@click.argument("args", nargs=-1, required=True)
+@click.argument("args", nargs=-1, required=True, type=click.UNPROCESSED)
 @click.option("-t", "--type", "job_type", default=None, help="Job type from config")
 @click.option("-n", "--cpu", type=int, default=None, help="Number of CPUs")
 @click.option("-m", "--mem", default=None, help="Memory (e.g. 16G)")
