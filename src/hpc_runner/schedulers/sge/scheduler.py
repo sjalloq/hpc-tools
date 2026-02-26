@@ -696,6 +696,8 @@ class SGEScheduler(BaseScheduler):
                 basic_info.stderr_path = cast(Path, job_data["stderr_path"])
             if job_data.get("node"):
                 basic_info.node = cast(str, job_data["node"])
+            if job_data.get("cwd"):
+                basic_info.working_dir = Path(cast(str, job_data["cwd"]))
 
             # Always use timing from detailed qstat -j output (more reliable)
             if job_data.get("submit_time"):
@@ -720,6 +722,7 @@ class SGEScheduler(BaseScheduler):
                 stdout_path=cast("Path | None", job_data.get("stdout_path")),
                 stderr_path=cast("Path | None", job_data.get("stderr_path")),
                 node=cast("str | None", job_data.get("node")),
+                working_dir=Path(cast(str, job_data["cwd"])) if job_data.get("cwd") else None,
             )
             # Add timing info
             if job_data.get("submit_time"):

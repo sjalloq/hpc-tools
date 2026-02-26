@@ -151,6 +151,7 @@ def _show_active_jobs(
         table.add_column("Node")
         table.add_column("CPU")
         table.add_column("Runtime")
+        table.add_column("Work Dir")
 
     for j in jobs:
         row: list[str] = [
@@ -166,6 +167,7 @@ def _show_active_jobs(
                     j.node or "—",
                     str(j.cpu) if j.cpu is not None else "—",
                     j.runtime_display,
+                    str(j.working_dir) if j.working_dir else "—",
                 ]
             )
         table.add_row(*row)
@@ -222,6 +224,7 @@ def _show_history(
         table.add_column("Node")
         table.add_column("CPU")
         table.add_column("Runtime")
+        table.add_column("Work Dir")
 
     for j in jobs:
         exit_str = str(j.exit_code) if j.exit_code is not None else "—"
@@ -244,6 +247,7 @@ def _show_history(
                     j.node or "—",
                     str(j.cpu) if j.cpu is not None else "—",
                     j.runtime_display,
+                    str(j.working_dir) if j.working_dir else "—",
                 ]
             )
         table.add_row(*row)
@@ -321,6 +325,8 @@ def _show_single_job(
         table.add_row("Ended", _format_datetime(job_info.end_time))
     if job_info.runtime:
         table.add_row("Runtime", job_info.runtime_display)
+    if job_info.working_dir:
+        table.add_row("Work Dir", str(job_info.working_dir))
     if job_info.stdout_path:
         table.add_row("Stdout", str(job_info.stdout_path))
     if job_info.stderr_path:
@@ -355,6 +361,7 @@ def _job_info_to_dict(j: JobInfo) -> dict[str, object]:
         "start_time": _format_datetime(j.start_time) if j.start_time else None,
         "end_time": _format_datetime(j.end_time) if j.end_time else None,
         "runtime": j.runtime_display if j.runtime else None,
+        "working_dir": str(j.working_dir) if j.working_dir else None,
     }
 
 

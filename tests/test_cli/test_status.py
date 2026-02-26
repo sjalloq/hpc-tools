@@ -13,7 +13,7 @@ from hpc_runner.core.result import JobStatus
 
 @pytest.fixture
 def runner():
-    return CliRunner()
+    return CliRunner(env={"COLUMNS": "200"})
 
 
 @pytest.fixture

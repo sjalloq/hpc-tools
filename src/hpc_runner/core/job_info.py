@@ -45,6 +45,7 @@ class JobInfo:
 
     # Extended info
     node: str | None = None
+    working_dir: Path | None = None
     dependencies: list[str] | None = None
     array_task_id: int | None = None
 
