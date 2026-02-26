@@ -233,3 +233,124 @@ class TestJobConfigAware:
         with patch("hpc_runner.core.config.get_config", return_value=cfg):
             job = Job(command="unknown_tool arg1")
         assert job.cpu == 1
+
+
+class TestJobEnvVarExpansion:
+    """Tests for environment variable expansion in env_vars, env_prepend, env_append."""
+
+    def _make_config(self, **kwargs) -> HPCConfig:
+        return HPCConfig(
+            defaults=kwargs.get("defaults", {}),
+            tools=kwargs.get("tools", {}),
+            types=kwargs.get("types", {}),
+        )
+
+    def test_env_vars_expanded(self):
+        """$VAR references in env_vars are expanded from the current environment."""
+        cfg = self._make_config(
+            defaults={"env_vars": {"MY_HOME": "$TEST_HPC_VAR"}},
+        )
+        with (
+            patch.dict(os.environ, {"TEST_HPC_VAR": "/some/path"}),
+            patch("hpc_runner.core.config.get_config", return_value=cfg),
+        ):
+            job = Job(command="echo hello")
+        assert job.env_vars["MY_HOME"] == "/some/path"
+
+    def test_env_vars_braced_syntax(self):
+        """${VAR} syntax is also expanded."""
+        cfg = self._make_config(
+            defaults={"env_vars": {"MY_HOME": "${TEST_HPC_VAR}/subdir"}},
+        )
+        with (
+            patch.dict(os.environ, {"TEST_HPC_VAR": "/some/path"}),
+            patch("hpc_runner.core.config.get_config", return_value=cfg),
+        ):
+            job = Job(command="echo hello")
+        assert job.env_vars["MY_HOME"] == "/some/path/subdir"
+
+    def test_env_vars_undefined_passthrough(self):
+        """Undefined $VAR references are passed through literally."""
+        cfg = self._make_config(
+            defaults={"env_vars": {"MY_HOME": "$UNDEFINED_VAR_XYZ"}},
+        )
+        with (
+            patch.dict(os.environ, {}, clear=False),
+            patch("hpc_runner.core.config.get_config", return_value=cfg),
+        ):
+            # Make sure the var is truly unset
+            os.environ.pop("UNDEFINED_VAR_XYZ", None)
+            job = Job(command="echo hello")
+        assert job.env_vars["MY_HOME"] == "$UNDEFINED_VAR_XYZ"
+
+    def test_env_vars_braced_undefined_passthrough(self):
+        """Undefined ${VAR} references are passed through literally."""
+        cfg = self._make_config(
+            defaults={"env_vars": {"MY_HOME": "${UNDEFINED_VAR_XYZ}"}},
+        )
+        with (
+            patch.dict(os.environ, {}, clear=False),
+            patch("hpc_runner.core.config.get_config", return_value=cfg),
+        ):
+            os.environ.pop("UNDEFINED_VAR_XYZ", None)
+            job = Job(command="echo hello")
+        assert job.env_vars["MY_HOME"] == "${UNDEFINED_VAR_XYZ}"
+
+    def test_env_prepend_expanded(self):
+        """$VAR references in env_prepend are expanded."""
+        cfg = self._make_config(
+            defaults={"env_prepend": {"PATH": "$TEST_HPC_VAR/bin"}},
+        )
+        with (
+            patch.dict(os.environ, {"TEST_HPC_VAR": "/tools"}),
+            patch("hpc_runner.core.config.get_config", return_value=cfg),
+        ):
+            job = Job(command="echo hello")
+        assert job.env_prepend["PATH"] == "/tools/bin"
+
+    def test_env_append_expanded(self):
+        """$VAR references in env_append are expanded."""
+        cfg = self._make_config(
+            defaults={"env_append": {"PYTHONPATH": "$TEST_HPC_VAR/lib"}},
+        )
+        with (
+            patch.dict(os.environ, {"TEST_HPC_VAR": "/tools"}),
+            patch("hpc_runner.core.config.get_config", return_value=cfg),
+        ):
+            job = Job(command="echo hello")
+        assert job.env_append["PYTHONPATH"] == "/tools/lib"
+
+    def test_plain_values_unchanged(self):
+        """Values without $VAR references are not modified."""
+        cfg = self._make_config(
+            defaults={"env_vars": {"FOO": "/a/plain/path", "BAR": "literal"}},
+        )
+        with patch("hpc_runner.core.config.get_config", return_value=cfg):
+            job = Job(command="echo hello")
+        assert job.env_vars["FOO"] == "/a/plain/path"
+        assert job.env_vars["BAR"] == "literal"
+
+    def test_multiple_vars_in_one_value(self):
+        """Multiple $VAR references in a single value are all expanded."""
+        cfg = self._make_config(
+            defaults={"env_vars": {"COMBINED": "$TEST_A/$TEST_B"}},
+        )
+        with (
+            patch.dict(os.environ, {"TEST_A": "foo", "TEST_B": "bar"}),
+            patch("hpc_runner.core.config.get_config", return_value=cfg),
+        ):
+            job = Job(command="echo hello")
+        assert job.env_vars["COMBINED"] == "foo/bar"
+
+    def test_mixed_defined_and_undefined(self):
+        """Mix of defined and undefined vars: defined are expanded, undefined pass through."""
+        cfg = self._make_config(
+            defaults={"env_vars": {"MIX": "$TEST_DEFINED:$NONEXISTENT_VAR_XYZ"}},
+        )
+        with (
+            patch.dict(os.environ, {"TEST_DEFINED": "real"}, clear=False),
+            patch("hpc_runner.core.config.get_config", return_value=cfg),
+        ):
+            os.environ.pop("NONEXISTENT_VAR_XYZ", None)
+            job = Job(command="echo hello")
+        assert job.env_vars["MIX"] == "real:$NONEXISTENT_VAR_XYZ"

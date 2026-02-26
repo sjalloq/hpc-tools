@@ -222,10 +222,18 @@ class Job:
             venv_val = os.environ.get("VIRTUAL_ENV")
         self.venv = venv_val
 
-        # Non-descriptor attributes
-        self.env_vars: dict[str, str] = job_config.get("env_vars") or {}
-        self.env_prepend: dict[str, str] = job_config.get("env_prepend") or {}
-        self.env_append: dict[str, str] = job_config.get("env_append") or {}
+        # Non-descriptor attributes — expand $VAR references so that
+        # values are captured *before* module purge wipes the environment.
+        from hpc_runner.core.config import _expand_env_vars
+
+        def _expand_dict_values(d: dict[str, str] | None) -> dict[str, str]:
+            if not d:
+                return {}
+            return {k: _expand_env_vars(v) for k, v in d.items()}
+
+        self.env_vars: dict[str, str] = _expand_dict_values(job_config.get("env_vars"))
+        self.env_prepend: dict[str, str] = _expand_dict_values(job_config.get("env_prepend"))
+        self.env_append: dict[str, str] = _expand_dict_values(job_config.get("env_append"))
         self.modules: list[str] = job_config.get("modules") or []
         self.modules_path: list[str] = job_config.get("modules_path") or []
 
