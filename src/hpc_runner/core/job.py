@@ -259,7 +259,10 @@ class Job:
     # =========================================================================
 
     def submit(
-        self, scheduler: BaseScheduler | None = None, keep_script: bool = False
+        self,
+        scheduler: BaseScheduler | None = None,
+        keep_script: bool = False,
+        interactive: bool = False,
     ) -> JobResult:
         """Submit the job to a scheduler.
 
@@ -271,6 +274,8 @@ class Job:
                        probes for SGE_ROOT, sbatch, etc.)
             keep_script: If True, don't delete the generated job script
                          after submission. Useful for debugging.
+            interactive: If True, run the job interactively (e.g. qrsh
+                         for SGE) instead of submitting to the batch queue.
 
         Returns:
             JobResult with job ID and methods to check status, get output, etc.
@@ -288,7 +293,7 @@ class Job:
 
         if scheduler is None:
             scheduler = get_scheduler()
-        return scheduler.submit(self, keep_script=keep_script)
+        return scheduler.submit(self, interactive=interactive, keep_script=keep_script)
 
     # =========================================================================
     # Attribute Iteration

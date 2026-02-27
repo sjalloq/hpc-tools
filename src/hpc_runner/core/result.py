@@ -41,6 +41,8 @@ class JobResult:
     @property
     def status(self) -> JobStatus:
         """Get current job status (queries scheduler)."""
+        if self._exit_code is not None:
+            return JobStatus.COMPLETED if self._exit_code == 0 else JobStatus.FAILED
         return self.scheduler.get_status(self.job_id)
 
     @property

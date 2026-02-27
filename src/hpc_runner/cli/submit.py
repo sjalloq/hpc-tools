@@ -24,7 +24,6 @@ console = Console()
 @click.command(
     context_settings={
         "help_option_names": ["-h", "--help"],
-        "ignore_unknown_options": True,
         "allow_interspersed_args": False,
     },
 )
