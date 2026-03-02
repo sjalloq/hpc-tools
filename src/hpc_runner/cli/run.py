@@ -46,6 +46,9 @@ def _parse_args(args: tuple[str, ...]) -> tuple[list[str], list[str]]:
 @click.option("--directory", type=click.Path(exists=True), help="Working directory")
 @click.option("--job-type", "job_type", help="Job type from config")
 @click.option("--module", "modules", multiple=True, help="Modules to load (repeatable)")
+@click.option(
+    "--module-path", "module_path", multiple=True, help="Module paths to use (repeatable)"
+)
 @click.option("--stderr", help="Separate stderr file (default: merged)")
 @click.option("--stdout", "stdout", help="Stdout file path pattern")
 @click.option("--array", help="Array job specification (e.g., 1-100)")
@@ -75,6 +78,7 @@ def run(
     directory: str | None,
     job_type: str | None,
     modules: tuple[str, ...],
+    module_path: tuple[str, ...],
     stderr: str | None,
     stdout: str | None,
     array: str | None,
@@ -137,6 +141,7 @@ def run(
         tasks=ntasks,
         workdir=directory,
         modules=list(modules) if modules else None,
+        modules_path=list(module_path) if module_path else None,
         stderr=stderr,
         stdout=stdout,
         inherit_env=inherit_env,
