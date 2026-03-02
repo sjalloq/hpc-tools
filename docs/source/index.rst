@@ -1,12 +1,11 @@
 HPC Runner
 ==========
 
-.. note::
-
-   **Overview (write your why/what here):**
-   Replace this note with your project perspective (motivation, principles,
-   and what “good” looks like). The rest of the docs are organized below.
-
+**hpc-runner** provides a unified front end for submitting jobs to HPC
+schedulers (SGE, Slurm, PBS) and running them locally for testing.  It
+abstracts scheduler-specific flags behind a consistent CLI and Python API,
+and uses Environment Modules to ensure reproducible tool environments across
+users.
 
 .. toctree::
    :maxdepth: 2

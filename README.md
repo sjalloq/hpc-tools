@@ -103,7 +103,10 @@ with Pipeline("ml_workflow") as p:
     p.add("python train.py", name="train", depends_on=["preprocess"], queue="gpu")
     p.add("python evaluate.py", name="evaluate", depends_on=["train"])
 
-results = p.submit()
+# Auto-submitted when the with-block exits.
+# Results are accessible on the pipeline object.
+for name, result in p.results.items():
+    print(name, result.job_id, result.status)
 p.wait()
 ```
 
@@ -272,7 +275,7 @@ Key bindings:
 ## CLI Reference
 
 ```
-hpc run [OPTIONS] COMMAND
+hpc run [OPTIONS] [-- COMMAND]
 
 Options:
   --job-name TEXT       Job name
@@ -280,12 +283,17 @@ Options:
   --mem TEXT            Memory (e.g., 16G, 4096M)
   --time TEXT           Time limit (e.g., 4:00:00)
   --queue TEXT          Queue/partition name
+  --nodes INTEGER       Number of nodes (MPI jobs)
+  --ntasks INTEGER      Number of tasks (MPI jobs)
   --directory PATH      Working directory
+  --job-type TEXT       Job type from config
   --module TEXT         Module to load (repeatable)
+  --module-path PATH    Module path to use (repeatable)
+  --stdout TEXT         Stdout file path pattern
+  --stderr TEXT         Separate stderr file (default: merged)
   --array TEXT          Array spec (e.g., 1-100, 1-100%5)
   --depend TEXT         Job dependencies
-  --inherit-env         Inherit environment (default: true)
-  --no-inherit-env      Don't inherit environment
+  --inherit-env/--no-inherit-env
   --interactive         Run interactively (qrsh/srun)
   --local               Run locally (no scheduler)
   --dry-run             Show script without submitting
@@ -294,10 +302,11 @@ Options:
   -h, --help            Show help
 
 Other commands:
-  hpc status [JOB_ID]   Check job status
+  hpc status [JOB_ID]   Check job status (--history, --watch, --json)
   hpc cancel JOB_ID     Cancel a job
   hpc monitor           Interactive TUI
   hpc config show       Show active configuration
+  hpc config init       Create starter config
 ```
 
 ## Development

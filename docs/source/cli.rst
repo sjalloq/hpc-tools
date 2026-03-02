@@ -25,19 +25,26 @@ These options come before the subcommand:
 
 Submit a job to the scheduler.
 
-Common options:
+Options:
 
 - ``--job-name TEXT``
 - ``--cpu N``
 - ``--mem TEXT`` (e.g. ``16G``)
 - ``--time TEXT`` (e.g. ``4:00:00``)
 - ``--queue TEXT`` (SGE queue)
+- ``--nodes N`` (number of nodes, MPI jobs)
+- ``--ntasks N`` (number of tasks, MPI jobs)
 - ``--directory PATH`` (working dir)
-- ``--module TEXT`` (repeatable)
 - ``--job-type TEXT`` (named profile from config)
+- ``--module TEXT`` (repeatable)
+- ``--module-path PATH`` (module paths to use, repeatable)
+- ``--stdout TEXT`` (stdout file path pattern)
+- ``--stderr TEXT`` (separate stderr file; default: merged)
 - ``--array TEXT`` (e.g. ``1-100``)
 - ``--depend TEXT``
+- ``--inherit-env / --no-inherit-env``
 - ``--interactive`` (SGE: qrsh)
+- ``--local`` (run as local subprocess)
 - ``--dry-run`` (render, don’t submit)
 - ``--wait`` (wait for completion)
 - ``--keep-script`` (keep generated script; path is logged at debug level —
@@ -120,12 +127,32 @@ Examples:
    submit --dry-run make sim
 
 
+``hpc status``
+--------------
+
+Show job status. ``JOB_ID`` is optional — without it, active jobs are listed.
+
+.. code-block:: bash
+
+   hpc status              # list active jobs
+   hpc status 12345        # details for a single job
+   hpc status --history    # recently completed jobs (via accounting)
+
+Options:
+
+- ``--history / -H``: show recently completed jobs
+- ``--since / -s TEXT``: time window for ``--history`` (e.g. ``30m``, ``2h``, ``1d``)
+- ``--all / -a``: show all users' jobs
+- ``--json / -j``: output as JSON
+- ``--verbose / -v``: show extra columns/fields
+- ``--watch``: refresh periodically
+
+
 Other commands
 --------------
 
-- ``hpc status JOB_ID``: show job status
 - ``hpc cancel JOB_ID``: cancel a job
 - ``hpc monitor``: launch the TUI job monitor
 - ``hpc config show``: print the active config file contents
 - ``hpc config path``: print the active config file path
-- ``hpc config init [--global]``: create a starter config
+- ``hpc config init``: create a starter ``hpc-runner.toml`` in the current directory

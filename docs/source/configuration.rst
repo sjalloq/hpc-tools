@@ -69,6 +69,31 @@ SGE mapping notes
   resource names are configured under ``[schedulers.sge]``.
 
 
+Environment variables
+---------------------
+
+Three dictionary fields control the job environment.  All values support
+``$VAR`` and ``${VAR}`` expansion — variables are expanded at job creation
+time, before the scheduler's ``module purge`` clears the environment.
+
+- ``env_vars``: set variables to explicit values (overwrites any existing value)
+- ``env_prepend``: prepend to PATH-like variables (colon-separated)
+- ``env_append``: append to PATH-like variables (colon-separated)
+
+These can appear in ``[defaults]``, ``[tools.<name>]``, or ``[types.<name>]``.
+
+.. code-block:: toml
+
+   [tools.myapp.env_vars]
+   LICENSE_FILE = "/opt/licenses/myapp.lic"
+
+   [tools.myapp.env_prepend]
+   PATH = "$HOME/.local/bin"
+
+   [types.gpu.env_append]
+   LD_LIBRARY_PATH = "/opt/cuda/lib64"
+
+
 .. _tool-option-specialisation:
 
 Tool option specialisation
@@ -157,6 +182,16 @@ Save as ``hpc-runner.toml`` at your git root or in the current directory:
    resources = [
      { name = "scratch", value = "20G" }
    ]
+
+   # Environment variable manipulation (values support $VAR / ${VAR} expansion)
+   [defaults.env_vars]
+   # MY_VAR = "value"            # set variable to an explicit value
+
+   [defaults.env_prepend]
+   # PATH = "/opt/mytools/bin"   # prepend to PATH-like variable
+
+   [defaults.env_append]
+   # LD_LIBRARY_PATH = "/opt/mytools/lib"  # append to PATH-like variable
 
    [schedulers.sge]
    parallel_environment = "smp"
