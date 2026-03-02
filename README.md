@@ -126,14 +126,12 @@ p.wait()
 
 ## Configuration
 
-hpc-runner uses TOML configuration files. Location priority:
+hpc-runner uses TOML configuration files. Discovery uses a two-level model:
 
-1. `--config /path/to/config.toml`
-2. `./hpc-runner.toml`
-3. `./pyproject.toml` under `[tool.hpc-runner]`
-4. Git repository root `hpc-runner.toml`
-5. `~/.config/hpc-runner/config.toml`
-6. Package defaults
+1. **Project config:** `$HPC_RUNNER_CONFIG` env var (if set), otherwise `<git-root>/hpc-runner.toml`
+2. **Local override:** `./hpc-runner.toml` in cwd (when different from level 1)
+
+Both levels are deep-merged (local override wins). You can bypass discovery with `--config /path/to/file.toml`.
 
 ### Example Configuration
 
@@ -254,8 +252,6 @@ resources = [
   { name = "gpu", value = 1 }
 ]
 ```
-
-This config can also be embedded in `pyproject.toml` under `[tool.hpc-runner]`.
 
 ## TUI Monitor
 

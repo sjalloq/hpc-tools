@@ -33,11 +33,9 @@ def show(ctx: Context, raw: bool) -> None:
     if not config._source_paths:
         console.print("[yellow]No configuration file found[/yellow]")
         console.print("\nSearched locations:")
-        console.print(f"  - ${HPC_CONFIG_ENV_VAR} environment variable")
-        console.print("  - ~/.config/hpc-runner/{config.toml,hpc-runner.toml}")
-        console.print("  - <git-root>/hpc-runner.toml")
+        env_or_git = f"${HPC_CONFIG_ENV_VAR} env var (or <git-root>/hpc-runner.toml)"
+        console.print(f"  - {env_or_git}")
         console.print("  - ./hpc-runner.toml")
-        console.print("  - ./pyproject.toml [tool.hpc-runner]")
         return
 
     if raw:
@@ -120,16 +118,10 @@ def _format_toml_value(value: Any) -> str:
 
 
 @config_cmd.command("init")
-@click.option("--global", "global_config", is_flag=True, help="Create in ~/.config/hpc-runner/")
 @pass_context
-def init(ctx: Context, global_config: bool) -> None:
-    """Create a new configuration file."""
-    if global_config:
-        config_dir = Path.home() / ".config" / "hpc-runner"
-        config_dir.mkdir(parents=True, exist_ok=True)
-        config_path = config_dir / "config.toml"
-    else:
-        config_path = Path.cwd() / "hpc-runner.toml"
+def init(ctx: Context) -> None:
+    """Create a new configuration file in the current directory."""
+    config_path = Path.cwd() / "hpc-runner.toml"
 
     if config_path.exists():
         if not click.confirm(f"{config_path} already exists. Overwrite?"):
@@ -138,9 +130,6 @@ def init(ctx: Context, global_config: bool) -> None:
 
     # Write default config
     default_config = """# hpc-runner configuration
-#
-# This file is safe to commit to a project repo (for shared defaults).
-# For a per-user config, run: hpc config init --global
 
 [defaults]
 # Default job settings
@@ -189,11 +178,9 @@ def path(ctx: Context, show_all: bool) -> None:
     if not config_files:
         console.print("[yellow]No configuration file found[/yellow]")
         console.print("\nSearched locations:")
-        console.print(f"  - ${HPC_CONFIG_ENV_VAR} environment variable")
-        console.print("  - ~/.config/hpc-runner/{config.toml,hpc-runner.toml}")
-        console.print("  - <git-root>/hpc-runner.toml")
+        env_or_git = f"${HPC_CONFIG_ENV_VAR} env var (or <git-root>/hpc-runner.toml)"
+        console.print(f"  - {env_or_git}")
         console.print("  - ./hpc-runner.toml")
-        console.print("  - ./pyproject.toml [tool.hpc-runner]")
         return
 
     if show_all or len(config_files) > 1:

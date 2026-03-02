@@ -224,11 +224,18 @@ def find_config_files() -> list[Path]:
 
     Returns list of paths in merge order (first = lowest priority).
 
-    Merge order:
-    1. $HPC_RUNNER_CONFIG (if set) - site/system defaults
-    2. ~/.config/hpc-runner/{config.toml,hpc-runner.toml} - user defaults
-    3. <git-root>/hpc-runner.toml (with extends resolution)
-    4. ./hpc-runner.toml or ./pyproject.toml (with extends resolution)
+    Two-level discovery model:
+
+    1. **Project config (level 1):** ``$HPC_RUNNER_CONFIG`` if set and the file
+       exists, otherwise ``<git-root>/hpc-runner.toml``.  These are mutually
+       exclusive — the env var exists for submodule scenarios where a parent
+       project's config should win over the submodule's git root.
+    2. **Local override (level 2):** ``./hpc-runner.toml`` in the current
+       working directory, when it resolves to a different file from level 1.
+       Allows subdirectories to override project defaults.
+
+    Both levels go through ``add_config`` → ``_resolve_extends`` so extends
+    chains are preserved.
     """
     configs: list[Path] = []
     seen: set[Path] = set()
@@ -246,40 +253,27 @@ def find_config_files() -> list[Path]:
                 seen.add(p)
                 configs.append(p)
 
-    # 1. Environment variable config (site/system defaults)
+    # Level 1: Project config
+    # If $HPC_RUNNER_CONFIG is set and exists, use it.
+    # Otherwise fall back to <git-root>/hpc-runner.toml.
     env_config = os.environ.get(HPC_CONFIG_ENV_VAR)
     if env_config:
         env_path = Path(_expand_env_vars(env_config))
         if env_path.exists():
             add_config(env_path)
+    else:
+        cwd = Path.cwd()
+        git_root = _find_git_root(cwd)
+        if git_root:
+            git_config = git_root / "hpc-runner.toml"
+            if git_config.exists():
+                add_config(git_config)
 
-    # 2. User config (check both config.toml and hpc-runner.toml)
-    user_config_dir = Path.home() / ".config" / "hpc-runner"
-    for user_config_name in ("config.toml", "hpc-runner.toml"):
-        user_config = user_config_dir / user_config_name
-        if user_config.exists():
-            add_config(user_config)
-            break  # Use first one found
-
-    # 3. Git root config
+    # Level 2: Local override
+    # ./hpc-runner.toml in cwd, if it's a different file from level 1.
     cwd = Path.cwd()
-    git_root = _find_git_root(cwd)
-    if git_root:
-        git_config = git_root / "hpc-runner.toml"
-        if git_config.exists():
-            add_config(git_config)
-
-    # 4. Current directory config
     if (cwd / "hpc-runner.toml").exists():
         add_config(cwd / "hpc-runner.toml")
-    elif (cwd / "pyproject.toml").exists():
-        try:
-            with open(cwd / "pyproject.toml", "rb") as f:
-                pyproject = tomllib.load(f)
-            if "tool" in pyproject and "hpc-runner" in pyproject["tool"]:
-                add_config(cwd / "pyproject.toml")
-        except Exception:
-            pass
 
     return configs
 
@@ -287,7 +281,9 @@ def find_config_files() -> list[Path]:
 def find_config_file() -> Path | None:
     """Find the highest priority configuration file.
 
-    For backwards compatibility. Returns the last (highest priority) config.
+    Returns the last (highest priority) config from the two-level discovery
+    (project config at git root or ``$HPC_RUNNER_CONFIG``, then local
+    ``./hpc-runner.toml`` override).
     """
     configs = find_config_files()
     return configs[-1] if configs else None
@@ -307,15 +303,6 @@ def _load_single_config(path: Path) -> dict[str, Any]:
     """Load a single config file and return its data dict."""
     with open(path, "rb") as f:
         data: dict[str, Any] = tomllib.load(f)
-
-    # Handle pyproject.toml
-    if path.name == "pyproject.toml":
-        tool_section = data.get("tool", {})
-        if isinstance(tool_section, dict):
-            hpc_section = tool_section.get("hpc-runner", {})
-            data = dict(hpc_section) if isinstance(hpc_section, dict) else {}
-        else:
-            data = {}
 
     # Remove 'extends' key - it's metadata, not config
     data.pop("extends", None)

@@ -25,7 +25,7 @@ Or using passthrough flags directly:
 
 .. code-block:: bash
 
-   hpc run -q gpu.q "python train.py"
+   hpc run -q gpu.q -- python train.py
 
 
 CPU / slots (parallel environment)
@@ -91,5 +91,4 @@ through:
 
 .. code-block:: bash
 
-   hpc run -P myproject -l exclusive=true "python train.py"
-
+   hpc run -P myproject -l exclusive=true -- python train.py

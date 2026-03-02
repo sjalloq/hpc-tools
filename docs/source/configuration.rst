@@ -10,16 +10,16 @@ configuration values map to scheduler flags (with a focus on SGE).
 Where configuration is loaded from
 ----------------------------------------
 
-Configuration can be provided via a standalone TOML file or embedded inside
-``pyproject.toml``.
+Configuration uses a two-level discovery model.  Both levels are deep-merged
+(level 2 wins on conflicts).
 
-Discovery/precedence (highest to lowest):
-
-1. ``./hpc-runner.toml``
-2. ``./pyproject.toml`` under ``[tool.hpc-runner]``
-3. ``<git root>/hpc-runner.toml``
-4. ``~/.config/hpc-runner/config.toml``
-5. Package defaults
+1. **Project config (level 1):** ``$HPC_RUNNER_CONFIG`` if set and the file
+   exists, otherwise ``<git root>/hpc-runner.toml``.  These are mutually
+   exclusive — the env var exists for submodule scenarios where a parent
+   project's config should win over the submodule's git root.
+2. **Local override (level 2):** ``./hpc-runner.toml`` in the current working
+   directory, when it resolves to a different file from level 1.  Allows
+   subdirectories to override project defaults.
 
 You can always bypass discovery by providing ``--config /path/to/file.toml``.
 
@@ -128,7 +128,7 @@ different environments depending on how it is invoked.
 Example: fully populated config (standalone file)
 -------------------------------------------------
 
-Save as ``hpc-runner.toml`` (or ``~/.config/hpc-runner/config.toml``):
+Save as ``hpc-runner.toml`` at your git root or in the current directory:
 
 .. code-block:: toml
 
@@ -205,14 +205,3 @@ Save as ``hpc-runner.toml`` (or ``~/.config/hpc-runner/config.toml``):
    resources = [
      { name = "gpu", value = 1 }
    ]
-
-
-Embedding in pyproject.toml
----------------------------
-
-To embed the same config in ``pyproject.toml``, nest the same keys under:
-
-.. code-block:: toml
-
-   [tool.hpc-runner]
-   # ... same content as the standalone file ...

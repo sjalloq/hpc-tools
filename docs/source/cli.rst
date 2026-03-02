@@ -63,6 +63,16 @@ Without ``--``, all arguments are treated as the command. This avoids any
 ambiguity between scheduler flags and command flags (e.g. ``mpirun -N 4``
 won't be misinterpreted).
 
+.. note:: **Why ``--``?**
+
+   ``hpc run`` deliberately uses long-form options only (``--cpu``, ``--queue``,
+   etc.) so that short flags (``-q``, ``-l``, ``-N``) are unambiguously
+   scheduler arguments. However, hpc-runner cannot determine where scheduler
+   args end and the command begins without knowing every scheduler's option
+   grammar — a flag like ``-N`` might be standalone or might consume the next
+   argument. The ``--`` separator is the standard Unix solution to this
+   ambiguity, used by ``git``, ``ssh``, ``docker exec``, and others.
+
 Examples:
 
 .. code-block:: bash

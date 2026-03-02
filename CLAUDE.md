@@ -85,7 +85,7 @@ submit -t gpu -n 4 -m 16G python train.py
 - **JobResult/ArrayJobResult** - Returned from submission, provides status polling and output access
 - **JobStatus** - Unified enum: PENDING, RUNNING, COMPLETED, FAILED, CANCELLED, TIMEOUT, UNKNOWN
 - **ResourceSet** - Collection of named resources (gpu, licenses, etc.)
-- **HPCConfig** - TOML-based config with hierarchy: ./hpc-runner.toml > pyproject.toml > git root > ~/.config > package defaults
+- **HPCConfig** - TOML-based config with two-level discovery: $HPC_RUNNER_CONFIG or <git-root>/hpc-runner.toml (project), then ./hpc-runner.toml (local override)
 
 ### Scheduler System (`src/hpc_runner/schedulers/`)
 
@@ -110,6 +110,8 @@ hpc run echo hello                              # no passthrough
 hpc run -q batch.q -l gpu=2 -- python train.py  # passthrough
 hpc run --cpu 4 -q batch.q -- mpirun -N 4 ./sim # mixed
 ```
+
+**Design rationale for `--`**: `hpc run` deliberately reserves short-form flags (e.g. `-q`, `-l`, `-N`) for scheduler passthrough and uses long-form options only (e.g. `--cpu`, `--queue`). This means any short flag is unambiguously a scheduler argument. However, hpc-runner cannot determine where scheduler args end and the command begins without knowing every scheduler's option grammar — specifically, whether a flag like `-N` is a standalone flag or takes a value argument. The `--` separator is the standard Unix solution to this ambiguity (used by `git`, `ssh`, `docker exec`, etc.). Without it, `hpc run -q batch.q python train.py` is ambiguous: is `python` an argument to `-q` or the start of the command? The `--` makes it explicit.
 
 ### Workflow (`src/hpc_runner/workflow/`)
 

@@ -214,8 +214,8 @@ class TestFindConfigFile:
         finally:
             os.chdir(old_cwd)
 
-    def test_find_config_in_pyproject(self, temp_dir):
-        """Test finding config in pyproject.toml."""
+    def test_pyproject_toml_is_ignored(self, temp_dir):
+        """Test that pyproject.toml is ignored even with [tool.hpc-runner]."""
         pyproject = temp_dir / "pyproject.toml"
         pyproject.write_text("[tool.hpc-runner]\n[tool.hpc-runner.defaults]\ncpu = 1\n")
 
@@ -223,7 +223,7 @@ class TestFindConfigFile:
         os.chdir(temp_dir)
         try:
             found = find_config_file()
-            assert found == pyproject
+            assert found is None
         finally:
             os.chdir(old_cwd)
 
@@ -372,16 +372,59 @@ class TestConfigMerging:
         assert config.tools["python"]["modules"] == ["python/3.11"]
 
     def test_find_config_files_from_env_var(self, temp_dir):
-        """Test that HPC_RUNNER_CONFIG env var is used."""
-        env_config = temp_dir / "site.toml"
+        """Test that HPC_RUNNER_CONFIG env var replaces git root (mutually exclusive)."""
+        # Create a fake git root with its own config
+        git_dir = temp_dir / ".git"
+        git_dir.mkdir()
+        git_config = temp_dir / "hpc-runner.toml"
+        git_config.write_text("[defaults]\ncpu = 1\n")
+
+        # Create env var config in a different location
+        env_config = temp_dir / "site" / "site.toml"
+        env_config.parent.mkdir()
         env_config.write_text("[defaults]\ncpu = 2\n")
+
+        # chdir to a subdirectory without hpc-runner.toml so Level 2 doesn't
+        # pick up git_config as a cwd override
+        subdir = temp_dir / "subdir"
+        subdir.mkdir()
 
         os.environ[HPC_CONFIG_ENV_VAR] = str(env_config)
         old_cwd = os.getcwd()
-        os.chdir(temp_dir)
+        os.chdir(subdir)
         try:
             configs = find_config_files()
+            # env var config should be used
             assert env_config.resolve() in configs
+            # git root config should NOT be included (env var replaces it)
+            assert git_config.resolve() not in configs
+        finally:
+            del os.environ[HPC_CONFIG_ENV_VAR]
+            os.chdir(old_cwd)
+
+    def test_env_var_with_cwd_override(self, temp_dir):
+        """Test two-level model: env var config + cwd local override."""
+        # Create env var config
+        env_config = temp_dir / "site" / "site.toml"
+        env_config.parent.mkdir()
+        env_config.write_text("[defaults]\ncpu = 2\n")
+
+        # Create a local override in a subdirectory
+        subdir = temp_dir / "project"
+        subdir.mkdir()
+        local_config = subdir / "hpc-runner.toml"
+        local_config.write_text('[defaults]\nmem = "16G"\n')
+
+        os.environ[HPC_CONFIG_ENV_VAR] = str(env_config)
+        old_cwd = os.getcwd()
+        os.chdir(subdir)
+        try:
+            configs = find_config_files()
+            # Both configs should be present
+            assert env_config.resolve() in configs
+            assert local_config.resolve() in configs
+            # env var config should come first (lower priority)
+            assert configs.index(env_config.resolve()) < configs.index(local_config.resolve())
         finally:
             del os.environ[HPC_CONFIG_ENV_VAR]
             os.chdir(old_cwd)
