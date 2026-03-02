@@ -24,10 +24,7 @@ console = Console()
 @click.command(
     context_settings={
         "help_option_names": ["-h", "--help"],
-<<<<<<< HEAD
-=======
         "ignore_unknown_options": False,
->>>>>>> 1442f84 (Support env var expansion from TOML)
         "allow_interspersed_args": False,
     },
 )
