@@ -88,8 +88,8 @@ def status(
     # ---- Validation ------------------------------------------------- #
     if job_id and history:
         raise click.UsageError("Cannot combine JOB_ID with --history.")
-    if since_value and not history:
-        raise click.UsageError("--since requires --history.")
+    if since_value:
+        history = True
     if watch:
         console.print("[yellow]--watch is not yet implemented.[/yellow]")
         return

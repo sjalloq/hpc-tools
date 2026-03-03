@@ -3,7 +3,6 @@
 from datetime import datetime, timedelta
 from unittest.mock import MagicMock, patch
 
-import click
 import pytest
 from click.testing import CliRunner
 
@@ -64,11 +63,12 @@ class TestStatusValidation:
         assert result.exit_code != 0
         assert "Cannot combine" in result.output
 
-    def test_since_without_history_errors(self, runner, mock_scheduler):
+    def test_since_implies_history(self, runner, mock_scheduler):
+        """--since without --history should implicitly enable history mode."""
         with _patch_scheduler(mock_scheduler):
             result = runner.invoke(cli, ["status", "--since", "30m"])
-        assert result.exit_code != 0
-        assert "--since requires --history" in click.unstyle(result.output)
+        assert result.exit_code == 0
+        mock_scheduler.list_completed_jobs.assert_called_once()
 
 
 # ------------------------------------------------------------------ #
