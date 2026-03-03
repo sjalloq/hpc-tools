@@ -3,6 +3,7 @@
 from datetime import datetime, timedelta
 from unittest.mock import MagicMock, patch
 
+import click
 import pytest
 from click.testing import CliRunner
 
@@ -67,7 +68,7 @@ class TestStatusValidation:
         with _patch_scheduler(mock_scheduler):
             result = runner.invoke(cli, ["status", "--since", "30m"])
         assert result.exit_code != 0
-        assert "--since requires --history" in result.output
+        assert "--since requires --history" in click.unstyle(result.output)
 
 
 # ------------------------------------------------------------------ #
