@@ -38,6 +38,16 @@ console = Console()
 @click.option("-N", "--name", "job_name", default=None, help="Job name")
 @click.option("-w", "--wait", is_flag=True, help="Wait for completion")
 @click.option("-a", "--array", default=None, help="Array job spec (e.g. 1-100%5)")
+@click.option(
+    "-M", "--extra-module", "extra_modules", multiple=True, help="Extra module to append to config"
+)
+@click.option(
+    "-P",
+    "--extra-module-path",
+    "extra_module_path",
+    multiple=True,
+    help="Extra module path to append to config",
+)
 @click.option("-e", "--env", multiple=True, help="Env var KEY=VAL (repeatable)")
 @click.option("-d", "--depend", default=None, help="Job dependency")
 @click.option("-v", "--verbose", is_flag=True, help="Verbose output")
@@ -53,6 +63,8 @@ def submit(
     job_name: str | None,
     wait: bool,
     array: str | None,
+    extra_modules: tuple[str, ...],
+    extra_module_path: tuple[str, ...],
     env: tuple[str, ...],
     depend: str | None,
     verbose: bool,
@@ -66,7 +78,7 @@ def submit(
         submit -t gpu python train.py
         submit -n 4 -m 16G make sim
 
-    For full control (scheduler passthrough, modules, etc.) use ``hpc run``.
+    For full control (scheduler passthrough, etc.) use ``hpc run``.
     """
     import shlex
 
@@ -88,6 +100,8 @@ def submit(
         time=time_limit,
         queue=queue,
         dependency=depend,
+        extra_modules=list(extra_modules) if extra_modules else None,
+        extra_modules_path=list(extra_module_path) if extra_module_path else None,
     )
 
     # Parse -e KEY=VAL entries

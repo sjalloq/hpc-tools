@@ -116,6 +116,80 @@ cpu = 8
         assert "Array job" in result.output
         assert "10 tasks" in result.output
 
+    def test_extra_module_short_flag(self, runner, temp_dir):
+        """submit -M adds extra modules to config."""
+        from hpc_runner.core.config import reload_config
+
+        config_file = temp_dir / "hpc-runner.toml"
+        config_file.write_text("""
+[tools.python]
+cpu = 4
+modules = ["python/3.11"]
+""")
+        old_cwd = os.getcwd()
+        os.chdir(temp_dir)
+        try:
+            reload_config()
+            result = runner.invoke(submit, ["-M", "cuda/12.0", "--dry-run", "python", "script.py"])
+            assert result.exit_code == 0
+            assert "python/3.11" in result.output
+            assert "cuda/12.0" in result.output
+        finally:
+            os.chdir(old_cwd)
+
+    def test_extra_module_path_short_flag(self, runner, temp_dir):
+        """submit -P adds extra module paths to config."""
+        from hpc_runner.core.config import reload_config
+
+        config_file = temp_dir / "hpc-runner.toml"
+        config_file.write_text("""
+[defaults]
+modules_path = ["/opt/modules"]
+""")
+        old_cwd = os.getcwd()
+        os.chdir(temp_dir)
+        try:
+            reload_config()
+            result = runner.invoke(submit, ["-P", "/my/modules", "--dry-run", "echo", "hello"])
+            assert result.exit_code == 0
+            assert "/opt/modules" in result.output
+            assert "/my/modules" in result.output
+        finally:
+            os.chdir(old_cwd)
+
+    def test_extra_module_repeatable(self, runner, temp_dir):
+        """submit -M can be repeated for multiple extra modules."""
+        from hpc_runner.core.config import reload_config
+
+        config_file = temp_dir / "hpc-runner.toml"
+        config_file.write_text("""
+[tools.python]
+modules = ["python/3.11"]
+""")
+        old_cwd = os.getcwd()
+        os.chdir(temp_dir)
+        try:
+            reload_config()
+            result = runner.invoke(
+                submit,
+                ["-M", "cuda/12.0", "-M", "nccl/2.18", "--dry-run", "python", "train.py"],
+            )
+            assert result.exit_code == 0
+            assert "python/3.11" in result.output
+            assert "cuda/12.0" in result.output
+            assert "nccl/2.18" in result.output
+        finally:
+            os.chdir(old_cwd)
+
+    def test_help_shows_extra_module_flags(self, runner):
+        """submit --help should list -M and -P flags."""
+        result = runner.invoke(submit, ["--help"])
+        assert result.exit_code == 0
+        assert "-M" in result.output
+        assert "--extra-module" in result.output
+        assert "-P" in result.output
+        assert "--extra-module-path" in result.output
+
     def test_tool_auto_detection(self, runner, temp_dir):
         """submit should auto-detect tool from command."""
         from hpc_runner.core.config import reload_config

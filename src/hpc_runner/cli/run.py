@@ -45,9 +45,16 @@ def _parse_args(args: tuple[str, ...]) -> tuple[list[str], list[str]]:
 @click.option("--ntasks", type=int, help="Number of tasks (MPI jobs)")
 @click.option("--directory", type=click.Path(exists=True), help="Working directory")
 @click.option("--job-type", "job_type", help="Job type from config")
-@click.option("--module", "modules", multiple=True, help="Modules to load (repeatable)")
+@click.option("--module", "modules", multiple=True, help="Modules to load (replaces config)")
+@click.option("--module-path", "module_path", multiple=True, help="Module paths (replaces config)")
 @click.option(
-    "--module-path", "module_path", multiple=True, help="Module paths to use (repeatable)"
+    "--extra-module", "extra_modules", multiple=True, help="Extra modules to append to config"
+)
+@click.option(
+    "--extra-module-path",
+    "extra_module_path",
+    multiple=True,
+    help="Extra module paths to append to config",
 )
 @click.option("--stderr", help="Separate stderr file (default: merged)")
 @click.option("--stdout", "stdout", help="Stdout file path pattern")
@@ -79,6 +86,8 @@ def run(
     job_type: str | None,
     modules: tuple[str, ...],
     module_path: tuple[str, ...],
+    extra_modules: tuple[str, ...],
+    extra_module_path: tuple[str, ...],
     stderr: str | None,
     stdout: str | None,
     array: str | None,
@@ -142,6 +151,8 @@ def run(
         workdir=directory,
         modules=list(modules) if modules else None,
         modules_path=list(module_path) if module_path else None,
+        extra_modules=list(extra_modules) if extra_modules else None,
+        extra_modules_path=list(extra_module_path) if extra_module_path else None,
         stderr=stderr,
         stdout=stdout,
         inherit_env=inherit_env,

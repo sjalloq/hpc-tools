@@ -503,6 +503,77 @@ cpu = 8
             os.chdir(old_cwd)
 
 
+class TestExtraModuleCLI:
+    """Tests for --extra-module / --extra-module-path on hpc run."""
+
+    @pytest.fixture
+    def runner(self):
+        return CliRunner()
+
+    def test_extra_module_dry_run(self, runner, temp_dir):
+        """--extra-module adds modules to config defaults."""
+        config_file = temp_dir / "hpc-runner.toml"
+        config_file.write_text("""
+[tools.python]
+cpu = 4
+modules = ["python/3.11"]
+""")
+        import os
+
+        old_cwd = os.getcwd()
+        os.chdir(temp_dir)
+        try:
+            result = runner.invoke(
+                cli,
+                [
+                    "--scheduler",
+                    "local",
+                    "run",
+                    "--dry-run",
+                    "--extra-module",
+                    "cuda/12.0",
+                    "python",
+                    "script.py",
+                ],
+            )
+            assert result.exit_code == 0
+            assert "python/3.11" in result.output
+            assert "cuda/12.0" in result.output
+        finally:
+            os.chdir(old_cwd)
+
+    def test_extra_module_path_dry_run(self, runner, temp_dir):
+        """--extra-module-path adds module paths to config defaults."""
+        config_file = temp_dir / "hpc-runner.toml"
+        config_file.write_text("""
+[defaults]
+modules_path = ["/opt/modules"]
+""")
+        import os
+
+        old_cwd = os.getcwd()
+        os.chdir(temp_dir)
+        try:
+            result = runner.invoke(
+                cli,
+                [
+                    "--scheduler",
+                    "local",
+                    "run",
+                    "--dry-run",
+                    "--extra-module-path",
+                    "/my/modules",
+                    "echo",
+                    "hello",
+                ],
+            )
+            assert result.exit_code == 0
+            assert "/opt/modules" in result.output
+            assert "/my/modules" in result.output
+        finally:
+            os.chdir(old_cwd)
+
+
 class TestMainCLI:
     """Tests for main CLI."""
 

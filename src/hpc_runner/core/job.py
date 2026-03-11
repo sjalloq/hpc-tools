@@ -129,6 +129,8 @@ class Job:
         env_append: dict[str, str] | None = None,
         modules: list[str] | None = None,
         modules_path: list[str] | None = None,
+        extra_modules: list[str] | None = None,
+        extra_modules_path: list[str] | None = None,
         resources: ResourceSet | None = None,
         raw_args: list[str] | None = None,
         sge_args: list[str] | None = None,
@@ -188,6 +190,21 @@ class Job:
                 config_overrides[key] = val
 
         job_config.update(config_overrides)
+
+        # Append extra_modules / extra_modules_path with deduplication
+        for key, extras in (
+            ("modules", extra_modules),
+            ("modules_path", extra_modules_path),
+        ):
+            if extras:
+                base = job_config.get(key) or []
+                seen: set[str] = set()
+                merged: list[str] = []
+                for item in base + extras:
+                    if item not in seen:
+                        seen.add(item)
+                        merged.append(item)
+                job_config[key] = merged
 
         # -----------------------------------------------------------------
         # Attribute assignment from merged config

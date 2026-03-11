@@ -354,3 +354,88 @@ class TestJobEnvVarExpansion:
             os.environ.pop("NONEXISTENT_VAR_XYZ", None)
             job = Job(command="echo hello")
         assert job.env_vars["MIX"] == "real:$NONEXISTENT_VAR_XYZ"
+
+
+class TestExtraModules:
+    """Tests for extra_modules and extra_modules_path append behaviour."""
+
+    def _make_config(self, **kwargs) -> HPCConfig:
+        return HPCConfig(
+            defaults=kwargs.get("defaults", {}),
+            tools=kwargs.get("tools", {}),
+            types=kwargs.get("types", {}),
+        )
+
+    def test_extra_modules_appended_to_config(self):
+        """extra_modules appends to config-defined modules."""
+        cfg = self._make_config(
+            tools={"python": {"modules": ["python/3.11"]}},
+        )
+        with patch("hpc_runner.core.config.get_config", return_value=cfg):
+            job = Job(command="python train.py", extra_modules=["cuda/12.0"])
+        assert job.modules == ["python/3.11", "cuda/12.0"]
+
+    def test_extra_modules_deduplicates(self):
+        """Duplicate modules are removed, preserving order."""
+        cfg = self._make_config(
+            tools={"python": {"modules": ["python/3.11", "numpy/1.25"]}},
+        )
+        with patch("hpc_runner.core.config.get_config", return_value=cfg):
+            job = Job(command="python train.py", extra_modules=["python/3.11", "cuda/12.0"])
+        assert job.modules == ["python/3.11", "numpy/1.25", "cuda/12.0"]
+
+    def test_extra_modules_no_config_modules(self):
+        """extra_modules works when config defines no modules."""
+        cfg = self._make_config()
+        with patch("hpc_runner.core.config.get_config", return_value=cfg):
+            job = Job(command="echo hello", extra_modules=["gcc/13"])
+        assert job.modules == ["gcc/13"]
+
+    def test_modules_override_with_extra(self):
+        """modules= overrides config; extra_modules appends to that override."""
+        cfg = self._make_config(
+            defaults={"modules": ["default/1.0"]},
+        )
+        with patch("hpc_runner.core.config.get_config", return_value=cfg):
+            job = Job(
+                command="echo hello",
+                modules=["override/2.0"],
+                extra_modules=["extra/3.0"],
+            )
+        assert job.modules == ["override/2.0", "extra/3.0"]
+
+    def test_extra_modules_path_appended(self):
+        """extra_modules_path appends to config-defined modules_path."""
+        cfg = self._make_config(
+            defaults={"modules_path": ["/opt/modules"]},
+        )
+        with patch("hpc_runner.core.config.get_config", return_value=cfg):
+            job = Job(command="echo hello", extra_modules_path=["/my/modules"])
+        assert job.modules_path == ["/opt/modules", "/my/modules"]
+
+    def test_extra_modules_path_deduplicates(self):
+        """Duplicate module paths are removed."""
+        cfg = self._make_config(
+            defaults={"modules_path": ["/opt/modules"]},
+        )
+        with patch("hpc_runner.core.config.get_config", return_value=cfg):
+            job = Job(command="echo hello", extra_modules_path=["/opt/modules", "/my/modules"])
+        assert job.modules_path == ["/opt/modules", "/my/modules"]
+
+    def test_no_extras_preserves_config(self):
+        """Without extra_modules, config modules are unchanged."""
+        cfg = self._make_config(
+            defaults={"modules": ["a", "b"]},
+        )
+        with patch("hpc_runner.core.config.get_config", return_value=cfg):
+            job = Job(command="echo hello")
+        assert job.modules == ["a", "b"]
+
+    def test_modules_override_without_extra(self):
+        """modules= alone still fully overrides config."""
+        cfg = self._make_config(
+            defaults={"modules": ["default/1.0"]},
+        )
+        with patch("hpc_runner.core.config.get_config", return_value=cfg):
+            job = Job(command="echo hello", modules=["override/2.0"])
+        assert job.modules == ["override/2.0"]
