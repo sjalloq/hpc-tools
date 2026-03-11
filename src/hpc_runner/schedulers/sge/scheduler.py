@@ -594,8 +594,8 @@ class SGEScheduler(BaseScheduler):
         if user:
             cmd.extend(["-o", user])
 
-        # qacct -b/-e use MM/DD/YYYY HH:MM:SS format
-        time_fmt = "%m/%d/%Y %H:%M:%S"
+        # qacct -b/-e use [[CC]YYMMDDhhmm[.SS] format
+        time_fmt = "%Y%m%d%H%M.%S"
         if since:
             cmd.extend(["-b", since.strftime(time_fmt)])
         if until:
