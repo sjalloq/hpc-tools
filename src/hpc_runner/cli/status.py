@@ -141,16 +141,19 @@ def _show_active_jobs(
         console.print("[dim]No active jobs.[/dim]")
         return
 
+    if verbose:
+        _enrich_working_dirs(scheduler, jobs)
+
     table = Table(title="Active Jobs")
     table.add_column("Job ID", style="cyan", no_wrap=True)
     table.add_column("Name")
     table.add_column("State")
-    table.add_column("Submitted")
+    table.add_column("Started")
+    table.add_column("Queue")
+    table.add_column("Node")
+    table.add_column("CPU")
+    table.add_column("Runtime")
     if verbose:
-        table.add_column("Queue")
-        table.add_column("Node")
-        table.add_column("CPU")
-        table.add_column("Runtime")
         table.add_column("Work Dir")
 
     for j in jobs:
@@ -158,18 +161,14 @@ def _show_active_jobs(
             j.job_id,
             j.name,
             _status_style(j.status.name),
-            _format_datetime(j.submit_time),
+            _format_datetime(j.start_time),
+            j.queue or "—",
+            j.node or "—",
+            str(j.cpu) if j.cpu is not None else "—",
+            j.runtime_display,
         ]
         if verbose:
-            row.extend(
-                [
-                    j.queue or "—",
-                    j.node or "—",
-                    str(j.cpu) if j.cpu is not None else "—",
-                    j.runtime_display,
-                    str(j.working_dir) if j.working_dir else "—",
-                ]
-            )
+            row.append(str(j.working_dir) if j.working_dir else "—")
         table.add_row(*row)
 
     console.print(table)
@@ -219,12 +218,10 @@ def _show_history(
     table.add_column("State")
     table.add_column("Exit", justify="right")
     table.add_column("Ended")
-    if verbose:
-        table.add_column("Queue")
-        table.add_column("Node")
-        table.add_column("CPU")
-        table.add_column("Runtime")
-        table.add_column("Work Dir")
+    table.add_column("Queue")
+    table.add_column("Node")
+    table.add_column("CPU")
+    table.add_column("Runtime")
 
     for j in jobs:
         exit_str = str(j.exit_code) if j.exit_code is not None else "—"
@@ -239,17 +236,11 @@ def _show_history(
             _status_style(j.status.name),
             exit_str,
             _format_datetime(j.end_time),
+            j.queue or "—",
+            j.node or "—",
+            str(j.cpu) if j.cpu is not None else "—",
+            j.runtime_display,
         ]
-        if verbose:
-            row.extend(
-                [
-                    j.queue or "—",
-                    j.node or "—",
-                    str(j.cpu) if j.cpu is not None else "—",
-                    j.runtime_display,
-                    str(j.working_dir) if j.working_dir else "—",
-                ]
-            )
         table.add_row(*row)
 
     console.print(table)
@@ -343,6 +334,19 @@ def _show_single_job(
 # --------------------------------------------------------------------- #
 # Helpers
 # --------------------------------------------------------------------- #
+
+
+def _enrich_working_dirs(scheduler: BaseScheduler, jobs: list[JobInfo]) -> None:
+    """Fill in working_dir by querying per-job details for jobs that lack it."""
+    for j in jobs:
+        if j.working_dir:
+            continue
+        try:
+            detail, _ = scheduler.get_job_details(j.job_id)
+            if detail.working_dir:
+                j.working_dir = detail.working_dir
+        except (NotImplementedError, ValueError, RuntimeError):
+            pass
 
 
 def _job_info_to_dict(j: JobInfo) -> dict[str, object]:

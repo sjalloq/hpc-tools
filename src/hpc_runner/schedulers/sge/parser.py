@@ -98,13 +98,12 @@ def _parse_job_element(elem: ET.Element) -> dict[str, Any] | None:
     if slots_elem is not None and slots_elem.text:
         job_info["slots"] = int(slots_elem.text)
 
-    # Submission time (epoch seconds)
+    # Submission time (epoch seconds or ISO 8601)
     submit_text = elem.findtext(".//JB_submission_time")
     if submit_text:
-        try:
-            job_info["submit_time"] = int(submit_text)
-        except ValueError:
-            pass
+        submit_epoch = _parse_sge_timestamp(submit_text)
+        if submit_epoch is not None:
+            job_info["submit_time"] = submit_epoch
 
     # Start time (epoch seconds, only for running jobs)
     start_text = elem.findtext(".//JAT_start_time")

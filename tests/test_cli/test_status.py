@@ -102,7 +102,8 @@ class TestActiveJobs:
         assert "my_sim" in result.output
         assert "RUNNING" in result.output
 
-    def test_active_jobs_verbose(self, runner, mock_scheduler):
+    def test_active_jobs_shows_all_columns(self, runner, mock_scheduler):
+        """Default output includes queue, node, cpu, runtime columns."""
         mock_scheduler.list_active_jobs.return_value = [
             JobInfo(
                 job_id="100",
@@ -116,7 +117,7 @@ class TestActiveJobs:
             ),
         ]
         with _patch_scheduler(mock_scheduler):
-            result = runner.invoke(cli, ["status", "--verbose"])
+            result = runner.invoke(cli, ["status"])
         assert result.exit_code == 0
         assert "batch.q" in result.output
         assert "node1" in result.output
@@ -256,6 +257,7 @@ class TestSingleJob:
         assert '"cwd"' in result.output
 
     def test_single_job_verbose_with_extra(self, runner, mock_scheduler):
+        """--verbose on single job shows extra scheduler details."""
         mock_scheduler.get_job_details.return_value = (
             JobInfo(
                 job_id="300",
